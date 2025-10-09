@@ -1,0 +1,134 @@
+### User Management API Tests
+### Make sure to replace the Bearer tokens with valid JWT tokens
+
+### Variables
+@baseUrl = http://localhost:5020
+@insurerToken = YOUR_INSURER_JWT_TOKEN_HERE
+@providerToken = YOUR_PROVIDER_JWT_TOKEN_HERE
+
+### Test Endpoints (No Authentication Required)
+### Check Email Availability
+GET {{baseUrl}}/api/Test/check-email?email=beekayhuncho+pro@gmail.com
+
+### Create Provider Test (No Authentication)
+POST {{baseUrl}}/api/Test/create-provider
+Content-Type: application/json
+
+{
+  "firstName": "Bokamoso",
+  "lastName": "Laka",
+  "email": "beekayhuncho+pro@gmail.com",
+  "password": "123456",
+  "companyName": "Test Company",
+  "phoneNumber": "0662251040",
+  "address": "5058 Basboom Street",
+  "city": "Akasia",
+  "postalCode": "0201",
+  "country": "South Africa",
+  "contactPerson": "MoB FuturE"
+}
+
+### Create Insurer (Requires Insurer Role Token)
+POST {{baseUrl}}/api/AdminUser/insurers
+Authorization: Bearer {{insurerToken}}
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john.doe@abcinsurance.com",
+  "password": "SecurePassword123!",
+  "companyName": "ABC Insurance Company",
+  "phoneNumber": "+1-555-123-4567",
+  "address": "123 Insurance Plaza",
+  "city": "New York",
+  "postalCode": "10001",
+  "country": "USA",
+  "contactPerson": "Jane Smith"
+}
+
+### Create Provider (No Authentication Required)
+POST {{baseUrl}}/api/AdminUser/providers
+Content-Type: application/json
+
+{
+  "firstName": "Jane",
+  "lastName": "Smith",
+  "email": "jane.smith@xyzhealthcare.com",
+  "password": "SecurePassword123!",
+  "companyName": "XYZ Healthcare Services",
+  "phoneNumber": "+1-555-987-6543",
+  "address": "456 Medical Center Drive",
+  "city": "Los Angeles",
+  "postalCode": "90210",
+  "country": "USA",
+  "contactPerson": "Bob Johnson"
+}
+
+### Get All Insurers (Requires Insurer Role Token)
+GET {{baseUrl}}/api/AdminUser/insurers
+Authorization: Bearer {{insurerToken}}
+
+### Get All Providers (No Authentication Required)
+GET {{baseUrl}}/api/AdminUser/providers
+
+### Update Insurer (replace {id} with actual insurer ID)
+PUT {{baseUrl}}/api/AdminUser/insurers/1
+Authorization: Bearer {{insurerToken}}
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe Updated",
+  "email": "john.doe.updated@abcinsurance.com",
+  "companyName": "ABC Insurance Company LLC",
+  "phoneNumber": "+1-555-123-4567",
+  "address": "123 Insurance Plaza Suite 100",
+  "city": "New York",
+  "postalCode": "10001",
+  "country": "USA",
+  "contactPerson": "Jane Smith"
+}
+
+### Update Provider (replace {id} with actual provider ID)
+PUT {{baseUrl}}/api/AdminUser/providers/1
+Content-Type: application/json
+
+{
+  "firstName": "Jane",
+  "lastName": "Smith Updated",
+  "email": "jane.smith.updated@xyzhealthcare.com",
+  "companyName": "XYZ Healthcare Services Inc",
+  "phoneNumber": "+1-555-987-6543",
+  "address": "456 Medical Center Drive Suite 200",
+  "city": "Los Angeles",
+  "postalCode": "90210",
+  "country": "USA",
+  "contactPerson": "Bob Johnson"
+}
+
+### Delete Insurer (replace {id} with actual insurer ID)
+DELETE {{baseUrl}}/api/AdminUser/insurers/1
+Authorization: Bearer {{insurerToken}}
+
+### Delete Provider (replace {id} with actual provider ID)
+DELETE {{baseUrl}}/api/AdminUser/providers/1
+
+### Test with invalid data (should return validation errors)
+POST {{baseUrl}}/api/AdminUser/insurers
+Authorization: Bearer {{insurerToken}}
+Content-Type: application/json
+
+{
+  "firstName": "",
+  "lastName": "",
+  "email": "invalid-email",
+  "password": "123",
+  "companyName": "",
+  "phoneNumber": "",
+  "address": "",
+  "city": "",
+  "postalCode": "",
+  "country": "",
+  "contactPerson": ""
+}

@@ -1,0 +1,74 @@
+@InsuranceClaimsAPI_HostAddress = http://localhost:5020
+
+### Health Check
+GET {{InsuranceClaimsAPI_HostAddress}}/health
+Accept: application/json
+
+###
+
+### Register User with Firebase UID (No JWT tokens - Firebase handles auth)
+POST {{InsuranceClaimsAPI_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john.doe@example.com",
+  "password": "SecurePass123!",
+  "confirmPassword": "SecurePass123!",
+  "firebaseUid": "firebase-uid-from-react-app",
+  "phoneNumber": "+1234567890",
+  "companyName": "Example Company",
+  "address": "123 Main St",
+  "city": "Cape Town",
+  "postalCode": "8001",
+  "country": "South Africa",
+  "role": 1,
+  "acceptTerms": true
+}
+
+###
+
+### Login (No JWT tokens - Firebase handles auth)
+POST {{InsuranceClaimsAPI_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john.doe@example.com",
+  "password": "SecurePass123!"
+}
+
+###
+
+### Add User to System (Admin Function)
+POST {{InsuranceClaimsAPI_HostAddress}}/api/auth/add-user
+Content-Type: application/json
+
+{
+  "firstName": "Jane",
+  "lastName": "Smith",
+  "email": "jane.smith@example.com",
+  "password": "SecurePass123!",
+  "phoneNumber": "+1234567891",
+  "companyName": "Another Company",
+  "address": "456 Oak St",
+  "city": "Johannesburg",
+  "postalCode": "2000",
+  "country": "South Africa",
+  "role": 2,
+  "status": 1
+}
+
+###
+
+### Get User by Firebase UID
+GET {{InsuranceClaimsAPI_HostAddress}}/api/users/firebase/2ocKeVNVdIRyG5jPjzM1KPfifX32
+Accept: application/json
+
+###
+
+### Get All Users
+GET {{InsuranceClaimsAPI_HostAddress}}/api/users
+Accept: application/json
+
+###
