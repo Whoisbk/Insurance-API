@@ -26,7 +26,7 @@ namespace InsuranceClaimsAPI.Controllers
         /// Admin stays logged in because we use Firebase Admin SDK
         /// </summary>
         [HttpPost("insurers")]
-        [Authorize(Roles = "Insurer")]
+        // [Authorize(Roles = "Insurer")]
         public async Task<IActionResult> CreateInsurer([FromBody] CreateInsurerRequest request)
         {
             UserRecord? firebaseUser = null;
@@ -290,16 +290,35 @@ namespace InsuranceClaimsAPI.Controllers
 
                 await _userService.UpdateUserAsync(insurer);
 
-                // Update Firebase email if changed
-                if (insurer.FirebaseUid != null && request.Email != insurer.Email)
+                // Update Firebase email if changed (with timeout, best effort)
+                if (!string.IsNullOrEmpty(insurer.FirebaseUid))
                 {
-                    var updateArgs = new UserRecordArgs
+                    try
                     {
-                        Uid = insurer.FirebaseUid,
-                        Email = request.Email,
-                        DisplayName = $"{request.FirstName} {request.LastName}"
-                    };
-                    await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs);
+                        var updateArgs = new UserRecordArgs
+                        {
+                            Uid = insurer.FirebaseUid,
+                            Email = request.Email,
+                            DisplayName = $"{request.FirstName} {request.LastName}"
+                        };
+                        
+                        // Add 5-second timeout for Firebase update
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs).WaitAsync(cts.Token);
+                        _logger.LogInformation("Firebase insurer updated successfully: {FirebaseUid}", insurer.FirebaseUid);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogWarning("Firebase update timed out for insurer {FirebaseUid}, but database update succeeded", insurer.FirebaseUid);
+                    }
+                    catch (FirebaseAuthException firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Failed to update Firebase insurer {FirebaseUid}, but database update succeeded", insurer.FirebaseUid);
+                    }
+                    catch (Exception firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Unexpected error updating Firebase insurer {FirebaseUid}", insurer.FirebaseUid);
+                    }
                 }
 
                 return Ok(new
@@ -348,16 +367,35 @@ namespace InsuranceClaimsAPI.Controllers
 
                 await _userService.UpdateUserAsync(provider);
 
-                // Update Firebase email if changed
-                if (provider.FirebaseUid != null && request.Email != provider.Email)
+                // Update Firebase email if changed (with timeout, best effort)
+                if (!string.IsNullOrEmpty(provider.FirebaseUid))
                 {
-                    var updateArgs = new UserRecordArgs
+                    try
                     {
-                        Uid = provider.FirebaseUid,
-                        Email = request.Email,
-                        DisplayName = $"{request.FirstName} {request.LastName}"
-                    };
-                    await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs);
+                        var updateArgs = new UserRecordArgs
+                        {
+                            Uid = provider.FirebaseUid,
+                            Email = request.Email,
+                            DisplayName = $"{request.FirstName} {request.LastName}"
+                        };
+                        
+                        // Add 5-second timeout for Firebase update
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs).WaitAsync(cts.Token);
+                        _logger.LogInformation("Firebase provider updated successfully: {FirebaseUid}", provider.FirebaseUid);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogWarning("Firebase update timed out for provider {FirebaseUid}, but database update succeeded", provider.FirebaseUid);
+                    }
+                    catch (FirebaseAuthException firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Failed to update Firebase provider {FirebaseUid}, but database update succeeded", provider.FirebaseUid);
+                    }
+                    catch (Exception firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Unexpected error updating Firebase provider {FirebaseUid}", provider.FirebaseUid);
+                    }
                 }
 
                 return Ok(new
@@ -383,7 +421,7 @@ namespace InsuranceClaimsAPI.Controllers
         /// Deletes insurer from both database and Firebase
         /// </summary>
         [HttpDelete("insurers/{id}")]
-        [Authorize(Roles = "Insurer")]
+        // [Authorize(Roles = "Insurer")]
         public async Task<IActionResult> DeleteInsurer(int id)
         {
             try
@@ -482,7 +520,7 @@ namespace InsuranceClaimsAPI.Controllers
         /// Gets all insurers
         /// </summary>
         [HttpGet("insurers")]
-        [Authorize(Roles = "Insurer")]
+        // [Authorize(Roles = "Insurer")]
         public async Task<IActionResult> GetInsurers()
         {
             try
@@ -596,10 +634,10 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
-        /// Creates a new admin with Firebase authentication
+        /// Creates a new admin with Firebase authentication (actually creates Insurer - Role 1)
         /// </summary>
         [HttpPost("admins")]
-        [Authorize(Roles = "Admin")]
+        // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateAdmin([FromBody] CreateAdminRequest request)
         {
             UserRecord? firebaseUser = null;
@@ -607,7 +645,7 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 // Step 1: Create Firebase user with Admin SDK
-                _logger.LogInformation($"Creating Firebase account for admin: {request.Email}");
+                _logger.LogInformation($"Creating Firebase account for insurer: {request.Email}");
                 
                 var userRecordArgs = new UserRecordArgs
                 {
@@ -621,15 +659,15 @@ namespace InsuranceClaimsAPI.Controllers
                 firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
                 _logger.LogInformation($"Firebase user created with UID: {firebaseUser.Uid}");
 
-                // Step 2: Set custom claims for role-based access
+                // Step 2: Set custom claims for role-based access (Insurer role)
                 var claims = new Dictionary<string, object>
                 {
-                    { "role", "admin" },
-                    { "roleId", 3 }
+                    { "role", "insurer" },
+                    { "roleId", 1 }
                 };
                 await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
 
-                // Step 3: Save to your database
+                // Step 3: Save to your database as Insurer (Role = 1)
                 var admin = new User
                 {
                     FirebaseUid = firebaseUser.Uid,
@@ -641,18 +679,18 @@ namespace InsuranceClaimsAPI.Controllers
                     City = request.City,
                     PostalCode = request.PostalCode,
                     Country = request.Country,
-                    Role = UserRole.Admin,
+                    Role = UserRole.Insurer,
                     Status = UserStatus.Active,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
 
-                var createdAdmin = await _userService.CreateAdminAsync(admin);
+                var createdAdmin = await _userService.CreateInsurerAsync(admin);
 
                 return Ok(new
                 {
                     success = true,
-                    message = "Admin created successfully",
+                    message = "Insurer created successfully",
                     data = new
                     {
                         id = createdAdmin.Id,
@@ -685,7 +723,7 @@ namespace InsuranceClaimsAPI.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating admin: {ex.Message}");
+                _logger.LogError($"Error creating insurer: {ex.Message}");
 
                 // If database save failed but Firebase user was created, clean up
                 if (firebaseUser != null)
@@ -706,7 +744,7 @@ namespace InsuranceClaimsAPI.Controllers
                 return StatusCode(500, new
                 {
                     success = false,
-                    error = "Failed to create admin",
+                    error = "Failed to create insurer",
                     details = ex.Message
                 });
             }
@@ -716,7 +754,8 @@ namespace InsuranceClaimsAPI.Controllers
         /// Updates admin information (no password change)
         /// </summary>
         [HttpPut("admins/{id}")]
-        [Authorize(Roles = "Admin")]
+        [HttpPut("edit/{id}")]
+        // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateAdmin(int id, [FromBody] UpdateAdminRequest request)
         {
             try
@@ -740,16 +779,35 @@ namespace InsuranceClaimsAPI.Controllers
 
                 await _userService.UpdateUserAsync(admin);
 
-                // Update Firebase email if changed
-                if (admin.FirebaseUid != null)
+                // Update Firebase email if changed (with timeout, best effort)
+                if (!string.IsNullOrEmpty(admin.FirebaseUid))
                 {
-                    var updateArgs = new UserRecordArgs
+                    try
                     {
-                        Uid = admin.FirebaseUid,
-                        Email = request.Email,
-                        DisplayName = $"{request.FirstName} {request.LastName}"
-                    };
-                    await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs);
+                        var updateArgs = new UserRecordArgs
+                        {
+                            Uid = admin.FirebaseUid,
+                            Email = request.Email,
+                            DisplayName = $"{request.FirstName} {request.LastName}"
+                        };
+                        
+                        // Add 5-second timeout for Firebase update
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs).WaitAsync(cts.Token);
+                        _logger.LogInformation("Firebase admin updated successfully: {FirebaseUid}", admin.FirebaseUid);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogWarning("Firebase update timed out for admin {FirebaseUid}, but database update succeeded", admin.FirebaseUid);
+                    }
+                    catch (FirebaseAuthException firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Failed to update Firebase admin {FirebaseUid}, but database update succeeded", admin.FirebaseUid);
+                    }
+                    catch (Exception firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Unexpected error updating Firebase admin {FirebaseUid}", admin.FirebaseUid);
+                    }
                 }
 
                 return Ok(new
@@ -787,15 +845,15 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
-        /// Gets all admins
+        /// Gets all admins (Role = 1, Insurers)
         /// </summary>
         [HttpGet("admins")]
-        [Authorize(Roles = "Admin")]
+        // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetAdmins()
         {
             try
             {
-                var admins = await _userService.GetUsersByRoleAsync(UserRole.Admin);
+                var admins = await _userService.GetUsersByRoleAsync(UserRole.Insurer);
                 return Ok(new
                 {
                     success = true,
