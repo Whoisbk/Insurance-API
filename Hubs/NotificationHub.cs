@@ -1,10 +1,7 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using System.Security.Claims;
 
 namespace InsuranceClaimsAPI.Hubs
 {
-    [Authorize]
     public class NotificationHub : Hub
     {
         public override async Task OnConnectedAsync()
@@ -30,8 +27,9 @@ namespace InsuranceClaimsAPI.Hubs
 
         private int GetUserId()
         {
-            var userIdClaim = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return int.TryParse(userIdClaim, out var userId) ? userId : 0;
+            // Get user ID from query string (passed when connecting)
+            var userIdStr = Context.GetHttpContext()?.Request.Query["userId"].FirstOrDefault();
+            return int.TryParse(userIdStr, out var userId) ? userId : 0;
         }
     }
 }

@@ -86,6 +86,7 @@ namespace InsuranceClaimsAPI.Data
             // Configure Quote entity
             modelBuilder.Entity<Quote>(entity =>
             {
+                // Store enum as INT to match current DB schema
                 entity.Property(e => e.Status).HasConversion<int>();
                 entity.Property(e => e.DateSubmitted).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP");
 
@@ -123,6 +124,11 @@ namespace InsuranceClaimsAPI.Data
                     .WithMany(p => p.Messages)
                     .HasForeignKey(d => d.ClaimId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(d => d.Quote)
+                    .WithMany(p => p.Messages)
+                    .HasForeignKey(d => d.QuoteId)
+                    .OnDelete(DeleteBehavior.SetNull);
 
                 entity.HasOne(d => d.sender)
                     .WithMany(p => p.Messages)
@@ -169,7 +175,8 @@ namespace InsuranceClaimsAPI.Data
             // Configure Notification entity
             modelBuilder.Entity<Notification>(entity =>
             {
-                entity.Property(e => e.Status).HasConversion<int>();
+                // Map enum to string to be compatible with MySQL ENUM columns
+                entity.Property(e => e.Status).HasConversion<string>();
                 entity.Property(e => e.DateSent).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                 entity.HasOne(d => d.User)

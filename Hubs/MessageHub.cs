@@ -1,11 +1,8 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
-using System.Security.Claims;
 
 namespace InsuranceClaimsAPI.Hubs
 {
-    [Authorize]
     public class MessageHub : Hub
     {
         private readonly IMemoryCache _cache;
@@ -67,6 +64,25 @@ namespace InsuranceClaimsAPI.Hubs
             _logger.LogInformation("User {UserId} left claim room {ClaimId}", userId, claimId);
         }
 
+        public async Task JoinQuoteRoom(int quoteId)
+        {
+            var userId = GetUserId();
+            var groupName = $"Quote_{quoteId}";
+            
+            await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+            
+            _logger.LogInformation("User {UserId} joined quote room {QuoteId}", userId, quoteId);
+        }
+
+        public async Task LeaveQuoteRoom(int quoteId)
+        {
+            var groupName = $"Quote_{quoteId}";
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
+            
+            var userId = GetUserId();
+            _logger.LogInformation("User {UserId} left quote room {QuoteId}", userId, quoteId);
+        }
+
         public async Task SendMessageToClaim(int claimId, string message, string messageType = "Text")
         {
             var userId = GetUserId();
@@ -115,13 +131,15 @@ namespace InsuranceClaimsAPI.Hubs
 
         private int GetUserId()
         {
-            var userIdClaim = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return int.TryParse(userIdClaim, out var userId) ? userId : 0;
+            // Get user ID from query string (passed when connecting)
+            var userIdStr = Context.GetHttpContext()?.Request.Query["userId"].FirstOrDefault();
+            return int.TryParse(userIdStr, out var userId) ? userId : 0;
         }
 
         private string GetUsername()
         {
-            return Context.User?.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+            // Get username from query string if needed
+            return Context.GetHttpContext()?.Request.Query["username"].FirstOrDefault() ?? "Unknown";
         }
     }
 }

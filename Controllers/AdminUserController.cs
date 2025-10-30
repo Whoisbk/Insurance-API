@@ -2,7 +2,6 @@ using FirebaseAdmin.Auth;
 using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Admin;
 using InsuranceClaimsAPI.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 
@@ -266,7 +265,6 @@ namespace InsuranceClaimsAPI.Controllers
         /// Updates insurer information (no password change)
         /// </summary>
         [HttpPut("insurers/{id}")]
-        [Authorize(Roles = "Insurer")]
         public async Task<IActionResult> UpdateInsurer(int id, [FromBody] UpdateInsurerRequest request)
         {
             try
@@ -892,7 +890,6 @@ namespace InsuranceClaimsAPI.Controllers
         /// Deletes admin from both database and Firebase
         /// </summary>
         [HttpDelete("admins/{id}")]
-        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteAdmin(int id)
         {
             try

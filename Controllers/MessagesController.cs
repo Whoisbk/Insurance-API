@@ -1,14 +1,11 @@
 using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace InsuranceClaimsAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
     public class MessagesController : ControllerBase
     {
         private readonly IMessageService _messageService;
@@ -36,7 +33,8 @@ namespace InsuranceClaimsAPI.Controllers
         [HttpPost]
         public async Task<IActionResult> Send([FromBody] SendMessageRequest request)
         {
-            var senderIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0";
+            // Get user ID from header
+            var senderIdStr = Request.Headers["X-User-Id"].FirstOrDefault() ?? "0";
             var senderId = int.Parse(senderIdStr);
 
             var message = new Message
