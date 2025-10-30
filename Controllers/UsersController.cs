@@ -131,8 +131,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = user.City,
                         postalCode = user.PostalCode,
                         country = user.Country,
-                        role = user.Role.ToString(),
-                        status = user.Status.ToString(),
+                        role = (int)user.Role,
+                        status = (int)user.Status,
                         firebaseUid = user.FirebaseUid,
                         updatedAt = user.UpdatedAt
                     }

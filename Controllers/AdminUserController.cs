@@ -13,11 +13,13 @@ namespace InsuranceClaimsAPI.Controllers
     {
         private readonly IUserService _userService;
         private readonly ILogger<AdminUserController> _logger;
+        private readonly IEmailService _emailService;
 
-        public AdminUserController(IUserService userService, ILogger<AdminUserController> logger)
+        public AdminUserController(IUserService userService, ILogger<AdminUserController> logger, IEmailService emailService)
         {
             _userService = userService;
             _logger = logger;
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -76,6 +78,19 @@ namespace InsuranceClaimsAPI.Controllers
 
                 var createdInsurer = await _userService.CreateInsurerAsync(insurer);
 
+                // Best-effort welcome email
+                try
+                {
+                    await _emailService.SendAsync(
+                        createdInsurer.Email,
+                        "Welcome to Insurance Claims Portal",
+                        $"<p>Hi {createdInsurer.FirstName},</p><p>Your insurer account has been created successfully.</p>");
+                }
+                catch (Exception emailEx)
+                {
+                    _logger.LogWarning(emailEx, "Failed to send welcome email to insurer {Email}", createdInsurer.Email);
+                }
+
                 return Ok(new
                 {
                     success = true,
@@ -92,8 +107,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = createdInsurer.City,
                         postalCode = createdInsurer.PostalCode,
                         country = createdInsurer.Country,
-                        role = createdInsurer.Role.ToString(),
-                        status = createdInsurer.Status.ToString(),
+                        role = (int)createdInsurer.Role,
+                        status = (int)createdInsurer.Status,
                         firebaseUid = createdInsurer.FirebaseUid,
                         createdAt = createdInsurer.CreatedAt
                     }
@@ -196,6 +211,19 @@ namespace InsuranceClaimsAPI.Controllers
 
                 var createdProvider = await _userService.CreateProviderWithServiceProviderAsync(provider, request);
 
+                // Best-effort welcome email
+                try
+                {
+                    await _emailService.SendAsync(
+                        createdProvider.Email,
+                        "Welcome to Insurance Claims Portal",
+                        $"<p>Hi {createdProvider.FirstName},</p><p>Your provider account has been created successfully.</p>");
+                }
+                catch (Exception emailEx)
+                {
+                    _logger.LogWarning(emailEx, "Failed to send welcome email to provider {Email}", createdProvider.Email);
+                }
+
                 return Ok(new
                 {
                     success = true,
@@ -212,8 +240,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = createdProvider.City,
                         postalCode = createdProvider.PostalCode,
                         country = createdProvider.Country,
-                        role = createdProvider.Role.ToString(),
-                        status = createdProvider.Status.ToString(),
+                        role = (int)createdProvider.Role,
+                        status = (int)createdProvider.Status,
                         firebaseUid = createdProvider.FirebaseUid,
                         createdAt = createdProvider.CreatedAt
                     }
@@ -539,8 +567,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = i.City,
                         postalCode = i.PostalCode,
                         country = i.Country,
-                        role = i.Role.ToString(),
-                        status = i.Status.ToString(),
+                        role = (int)i.Role,
+                        status = (int)i.Status,
                         firebaseUid = i.FirebaseUid,
                         createdAt = i.CreatedAt,
                         updatedAt = i.UpdatedAt
@@ -583,8 +611,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = p.City,
                         postalCode = p.PostalCode,
                         country = p.Country,
-                        role = p.Role.ToString(),
-                        status = p.Status.ToString(),
+                        role = (int)p.Role,
+                        status = (int)p.Status,
                         firebaseUid = p.FirebaseUid,
                         createdAt = p.CreatedAt,
                         updatedAt = p.UpdatedAt
@@ -685,6 +713,19 @@ namespace InsuranceClaimsAPI.Controllers
 
                 var createdAdmin = await _userService.CreateInsurerAsync(admin);
 
+                // Best-effort welcome email
+                try
+                {
+                    await _emailService.SendAsync(
+                        createdAdmin.Email,
+                        "Welcome to Insurance Claims Portal",
+                        $"<p>Hi {createdAdmin.FirstName},</p><p>Your admin account has been created successfully.</p>");
+                }
+                catch (Exception emailEx)
+                {
+                    _logger.LogWarning(emailEx, "Failed to send welcome email to admin {Email}", createdAdmin.Email);
+                }
+
                 return Ok(new
                 {
                     success = true,
@@ -700,8 +741,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = createdAdmin.City,
                         postalCode = createdAdmin.PostalCode,
                         country = createdAdmin.Country,
-                        role = createdAdmin.Role.ToString(),
-                        status = createdAdmin.Status.ToString(),
+                        role = (int)createdAdmin.Role,
+                        status = (int)createdAdmin.Status,
                         firebaseUid = createdAdmin.FirebaseUid,
                         createdAt = createdAdmin.CreatedAt
                     }
@@ -823,8 +864,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = admin.City,
                         postalCode = admin.PostalCode,
                         country = admin.Country,
-                        role = admin.Role.ToString(),
-                        status = admin.Status.ToString(),
+                        role = (int)admin.Role,
+                        status = (int)admin.Status,
                         firebaseUid = admin.FirebaseUid,
                         updatedAt = admin.UpdatedAt
                     }
@@ -866,8 +907,8 @@ namespace InsuranceClaimsAPI.Controllers
                         city = a.City,
                         postalCode = a.PostalCode,
                         country = a.Country,
-                        role = a.Role.ToString(),
-                        status = a.Status.ToString(),
+                        role = (int)a.Role,
+                        status = (int)a.Status,
                         firebaseUid = a.FirebaseUid,
                         createdAt = a.CreatedAt,
                         updatedAt = a.UpdatedAt

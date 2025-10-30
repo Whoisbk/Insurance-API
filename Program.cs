@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Resend;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,7 +26,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        // Serialize enums as integers (default) so role/status return numeric values
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -75,6 +76,16 @@ builder.Services.AddScoped<IClaimService, ClaimService>();
 builder.Services.AddScoped<IQuoteService, QuoteService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+// Resend Email SDK configuration (supports ENV and appsettings fallback)
+builder.Services.AddOptions();
+builder.Services.AddHttpClient<ResendClient>();
+builder.Services.Configure<ResendClientOptions>(o =>
+{
+    var envToken = Environment.GetEnvironmentVariable("RESEND_APITOKEN");
+    var cfgToken = builder.Configuration["Email:ResendApiKey"]; 
+    o.ApiToken = !string.IsNullOrWhiteSpace(envToken) ? envToken! : (cfgToken ?? string.Empty);
+});
+builder.Services.AddTransient<IResend, ResendClient>();
 
 // Memory cache for SignalR
 builder.Services.AddMemoryCache();

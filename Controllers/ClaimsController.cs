@@ -35,8 +35,31 @@ namespace InsuranceClaimsAPI.Controllers
                 });
             }
 
-            // If no filters provided, return 405 to discourage unbounded queries
-            return StatusCode(405, "Method Not Allowed: specify providerId or use /api/claims/provider/{providerId}");
+            // If no filters provided, return all claims to support frontend call to /api/claims
+            var allClaims = await _claimService.GetAllAsync();
+            return Ok(new
+            {
+                success = true,
+                data = allClaims,
+                count = allClaims.Count,
+                page,
+                pageSize
+            });
+        }
+
+        /// <summary>
+        /// Gets all claims (use cautiously, potentially large result set)
+        /// </summary>
+        [HttpGet("all")]
+        public async Task<IActionResult> GetAll()
+        {
+            var claims = await _claimService.GetAllAsync();
+            return Ok(new
+            {
+                success = true,
+                data = claims,
+                count = claims.Count
+            });
         }
 
         [HttpGet("my")]

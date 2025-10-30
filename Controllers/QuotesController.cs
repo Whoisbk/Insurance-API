@@ -14,17 +14,20 @@ namespace InsuranceClaimsAPI.Controllers
         private readonly IClaimService _claimService;
         private readonly IMessageService _messageService;
         private readonly ILogger<QuotesController> _logger;
+        private readonly IEmailService _emailService;
 
         public QuotesController(
             IQuoteService quoteService,
             IClaimService claimService,
             IMessageService messageService,
-            ILogger<QuotesController> logger)
+            ILogger<QuotesController> logger,
+            IEmailService emailService)
         {
             _quoteService = quoteService;
             _claimService = claimService;
             _messageService = messageService;
             _logger = logger;
+            _emailService = emailService;
         }
 
         [HttpGet]
@@ -100,6 +103,34 @@ namespace InsuranceClaimsAPI.Controllers
                 };
 
                 var createdQuote = await _quoteService.SubmitAsync(quote);
+
+                // Best-effort email notifications
+                try
+                {
+                    var fullClaim = await _claimService.GetAsync(createdQuote.PolicyId);
+                    var insurerEmail = fullClaim?.Insurer?.Email;
+                    var providerEmail = fullClaim?.Provider?.Email;
+
+                    if (!string.IsNullOrWhiteSpace(insurerEmail))
+                    {
+                        await _emailService.SendAsync(
+                            insurerEmail,
+                            "New quote submitted",
+                            $"<p>A new quote has been submitted for claim #{fullClaim?.ClaimNumber ?? createdQuote.PolicyId.ToString()}.</p><p>Amount: <strong>{createdQuote.Amount:C}</strong></p><p>Status: {createdQuote.Status}</p>");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(providerEmail))
+                    {
+                        await _emailService.SendAsync(
+                            providerEmail,
+                            "Your quote was submitted",
+                            $"<p>Your quote for claim #{fullClaim?.ClaimNumber ?? createdQuote.PolicyId.ToString()} was submitted successfully.</p><p>Amount: <strong>{createdQuote.Amount:C}</strong></p><p>Status: {createdQuote.Status}</p>");
+                    }
+                }
+                catch (Exception emailEx)
+                {
+                    _logger.LogWarning(emailEx, "Failed to send quote creation emails for QuoteId {QuoteId}", createdQuote.QuoteId);
+                }
 
                 return Ok(new
                 {

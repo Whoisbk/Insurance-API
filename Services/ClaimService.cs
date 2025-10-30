@@ -9,6 +9,7 @@ namespace InsuranceClaimsAPI.Services
         Task<Claim> CreateAsync(Claim claim);
         Task<Claim> CreateForProviderAsync(int insurerId, int providerId, Claim claim);
         Task<Claim?> GetAsync(int id);
+        Task<IReadOnlyList<Claim>> GetAllAsync();
         Task<IReadOnlyList<Claim>> GetForUserAsync(int userId);
         Task<IReadOnlyList<Claim>> GetForProviderAsync(int providerId);
         Task UpdateStatusAsync(int claimId, ClaimStatus status);
@@ -127,6 +128,15 @@ namespace InsuranceClaimsAPI.Services
                 .Include(c => c.Provider)
                 .Include(c => c.Insurer)
                 .FirstOrDefaultAsync(c => c.Id == id);
+        }
+
+        public async Task<IReadOnlyList<Claim>> GetAllAsync()
+        {
+            return await _context.Claims
+                .Include(c => c.Provider)
+                .Include(c => c.Insurer)
+                .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
         }
 
         public async Task<IReadOnlyList<Claim>> GetForUserAsync(int userId)

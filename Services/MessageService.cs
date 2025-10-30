@@ -18,18 +18,55 @@ namespace InsuranceClaimsAPI.Services
     {
         private readonly InsuranceClaimsContext _context;
         private readonly IHubContext<MessageHub> _hubContext;
+        private readonly INotificationService _notificationService;
+        private readonly IEmailService _emailService;
 
-        public MessageService(InsuranceClaimsContext context, IHubContext<MessageHub> hubContext)
+        public MessageService(InsuranceClaimsContext context, IHubContext<MessageHub> hubContext, INotificationService notificationService, IEmailService emailService)
         {
             _context = context;
             _hubContext = hubContext;
+            _notificationService = notificationService;
+            _emailService = emailService;
         }
 
         public async Task<Message> SendAsync(Message message)
         {
+            // Set defaults
             message.CreatedAt = DateTime.UtcNow;
             message.UpdatedAt = DateTime.UtcNow;
             message.Status = MessageStatus.Sent;
+            message.IsRead = false;
+
+            // Validate required relationships exist to avoid FK violations
+            var claimExists = await _context.Claims.AnyAsync(c => c.Id == message.ClaimId);
+            if (!claimExists)
+            {
+                throw new InvalidOperationException("Claim not found");
+            }
+
+            var senderExists = await _context.Users.AnyAsync(u => u.Id == message.SenderId);
+            if (!senderExists)
+            {
+                throw new InvalidOperationException("Sender not found");
+            }
+
+            if (message.ReceiverId.HasValue)
+            {
+                var receiverExists = await _context.Users.AnyAsync(u => u.Id == message.ReceiverId.Value);
+                if (!receiverExists)
+                {
+                    throw new InvalidOperationException("Receiver not found");
+                }
+            }
+
+            if (message.QuoteId.HasValue)
+            {
+                var quoteExists = await _context.Quotes.AnyAsync(q => q.QuoteId == message.QuoteId.Value);
+                if (!quoteExists)
+                {
+                    throw new InvalidOperationException("Quote not found");
+                }
+            }
 
             _context.Messages.Add(message);
             await _context.SaveChangesAsync();
@@ -95,6 +132,34 @@ namespace InsuranceClaimsAPI.Services
                     CreatedAt = message.CreatedAt,
                     Timestamp = DateTime.UtcNow
                 });
+
+                // Persist a notification for the receiver
+                await _notificationService.CreateAsync(new Notification
+                {
+                    UserId = message.ReceiverId.Value,
+                    QuoteId = message.QuoteId,
+                    Message = !string.IsNullOrWhiteSpace(message.Subject)
+                        ? $"New message: {message.Subject}"
+                        : $"New message on claim #{message.ClaimId}",
+                    DateSent = DateTime.UtcNow,
+                    Status = NotificationStatus.Unread
+                });
+
+                // Best-effort email notification
+                try
+                {
+                    var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Id == message.ReceiverId.Value);
+                    if (receiver != null && !string.IsNullOrWhiteSpace(receiver.Email))
+                    {
+                        var subject = string.IsNullOrWhiteSpace(message.Subject) ? "You have a new message" : message.Subject!;
+                        var html = $"<p>You have a new message on claim #{message.ClaimId}{(message.QuoteId.HasValue ? $" / quote #{message.QuoteId.Value}" : string.Empty)}.</p><p><strong>Subject:</strong> {System.Net.WebUtility.HtmlEncode(subject)}</p><p>{System.Net.WebUtility.HtmlEncode(message.Content)}</p>";
+                        await _emailService.SendAsync(receiver.Email, subject, html);
+                    }
+                }
+                catch
+                {
+                    // swallow email errors, already logged by EmailService where relevant
+                }
             }
 
             return message;
@@ -104,11 +169,6 @@ namespace InsuranceClaimsAPI.Services
         {
             // Security check: verify user has access to this quote
             var quote = await _context.Quotes
-                .Include(q => q.Provider)
-                .Include(q => q.Policy)
-                    .ThenInclude(p => p.Provider)
-                .Include(q => q.Policy)
-                    .ThenInclude(p => p.Insurer)
                 .FirstOrDefaultAsync(q => q.QuoteId == message.QuoteId);
 
             if (quote == null)
@@ -116,8 +176,18 @@ namespace InsuranceClaimsAPI.Services
                 throw new InvalidOperationException("Quote not found");
             }
 
+            // Load the associated claim (PolicyId refers to Claim.Id)
+            var claim = await _context.Claims
+                .Include(c => c.Provider)
+                .Include(c => c.Insurer)
+                .FirstOrDefaultAsync(c => c.Id == quote.PolicyId);
+
+            if (claim == null)
+            {
+                throw new InvalidOperationException("Associated claim not found");
+            }
+
             // Verify user is either the provider or the insurer for this quote
-            var claim = quote.Policy;
             if (claim.ProviderId != userId && claim.InsurerId != userId)
             {
                 throw new UnauthorizedAccessException("You do not have permission to send messages for this quote");

@@ -83,6 +83,53 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
+        /// Gets all notifications for a specific insurer
+        /// </summary>
+        [HttpGet("insurer/{insurerId:int}")]
+        public async Task<IActionResult> GetByInsurer(int insurerId)
+        {
+            try
+            {
+                var insurer = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
+
+                if (insurer == null)
+                {
+                    return NotFound(new { success = false, error = "Insurer not found" });
+                }
+
+                var notifications = await _context.Notifications
+                    .Include(n => n.Quote)
+                    .Where(n => n.UserId == insurerId)
+                    .OrderByDescending(n => n.DateSent)
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    data = notifications.Select(n => new
+                    {
+                        notificationId = n.NotificationId,
+                        userId = n.UserId,
+                        quoteId = n.QuoteId,
+                        message = n.Message,
+                        dateSent = n.DateSent,
+                        status = n.Status.ToString()
+                    })
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to retrieve insurer notifications",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
         /// Marks a notification as read for the authenticated user
         /// </summary>
         [HttpPost("{id:int}/read")]
