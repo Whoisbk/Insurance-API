@@ -158,6 +158,18 @@ namespace InsuranceClaimsAPI.Controllers
             await _claimService.UpdateStatusAsync(id, status);
             return NoContent();
         }
+
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var deleted = await _claimService.DeleteAsync(id);
+            if (!deleted)
+            {
+                return NotFound();
+            }
+
+            return NoContent();
+        }
     }
 }
 

@@ -12,6 +12,7 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Claim>> GetAllAsync();
         Task<IReadOnlyList<Claim>> GetForUserAsync(int userId);
         Task<IReadOnlyList<Claim>> GetForProviderAsync(int providerId);
+        Task<bool> DeleteAsync(int claimId);
         Task UpdateStatusAsync(int claimId, ClaimStatus status);
     }
 
@@ -94,6 +95,33 @@ namespace InsuranceClaimsAPI.Services
             });
 
             return claim;
+        }
+
+        public async Task<bool> DeleteAsync(int claimId)
+        {
+            var claim = await _context.Claims
+                .Include(c => c.ClaimDocuments)
+                .Include(c => c.Messages)
+                .Include(c => c.Quotes)
+                .FirstOrDefaultAsync(c => c.Id == claimId);
+
+            if (claim == null)
+            {
+                return false;
+            }
+
+            _context.Claims.Remove(claim);
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync(new AuditLog
+            {
+                Action = AuditAction.Delete,
+                EntityType = EntityType.Claim,
+                EntityId = claimId.ToString(),
+                ActionDescription = "Claim deleted"
+            });
+
+            return true;
         }
 
         private async Task<string> GenerateUniqueClaimNumberAsync()

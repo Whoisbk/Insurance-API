@@ -11,6 +11,8 @@ namespace InsuranceClaimsAPI.Models.DTOs.Quotes
         [Required]
         [Range(0.01, 999999999.99, ErrorMessage = "Amount must be greater than 0")]
         public decimal Amount { get; set; }
+
+        public IList<QuoteAttachmentRequest>? Attachments { get; set; }
     }
 }
 

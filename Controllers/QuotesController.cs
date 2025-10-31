@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Quotes;
 using InsuranceClaimsAPI.Models.DTOs.Messages;
@@ -30,6 +33,69 @@ namespace InsuranceClaimsAPI.Controllers
             _emailService = emailService;
         }
 
+        [HttpPost("{quoteId:int}/documents")]
+        public async Task<IActionResult> UploadQuoteDocuments(int quoteId, [FromBody] IList<QuoteAttachmentRequest> attachments)
+        {
+            try
+            {
+                if (attachments == null || attachments.Count == 0)
+                {
+                    return BadRequest(new { success = false, error = "No attachments provided" });
+                }
+
+                var headerValue = Request.Headers["X-User-Id"].FirstOrDefault();
+                if (!int.TryParse(headerValue, out var uploaderId) || uploaderId <= 0)
+                {
+                    return BadRequest(new { success = false, error = "Valid X-User-Id header is required" });
+                }
+
+                try
+                {
+                    var savedDocuments = await _quoteService.AddDocumentsAsync(
+                        quoteId,
+                        uploaderId,
+                        attachments,
+                        HttpContext.RequestAborted);
+
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Documents uploaded successfully",
+                        data = savedDocuments.Select(d => new
+                        {
+                            id = d.Id,
+                            fileName = d.FileName,
+                            mimeType = d.MimeType,
+                            fileSizeBytes = d.FileSizeBytes,
+                            type = d.Type.ToString(),
+                            url = d.FilePath,
+                            createdAt = d.CreatedAt
+                        }).ToList()
+                    });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    var errorMessage = ex.Message;
+                    if (!string.IsNullOrWhiteSpace(errorMessage) && errorMessage.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return NotFound(new { success = false, error = errorMessage });
+                    }
+
+                    return BadRequest(new { success = false, error = errorMessage });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading documents for quote {QuoteId}", quoteId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to upload documents",
+                    details = ex.Message
+                });
+            }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -45,14 +111,67 @@ namespace InsuranceClaimsAPI.Controllers
             {
                 return NotFound(new { message = "Quote not found" });
             }
-            return Ok(quote);
+            var response = new
+            {
+                quoteId = quote.QuoteId,
+                claimId = quote.PolicyId,
+                providerId = quote.ProviderId,
+                amount = quote.Amount,
+                status = quote.Status.ToString(),
+                dateSubmitted = quote.DateSubmitted,
+                documents = (quote.QuoteDocuments ?? new List<QuoteDocument>()).Select(d => new
+                {
+                    id = d.Id,
+                    fileName = d.FileName,
+                    mimeType = d.MimeType,
+                    fileSizeBytes = d.FileSizeBytes,
+                    type = d.Type.ToString(),
+                    url = d.FilePath,
+                    title = d.Title,
+                    description = d.Description,
+                    tags = d.Tags,
+                    uploadedAt = d.CreatedAt
+                }).ToList()
+            };
+
+            return Ok(new
+            {
+                success = true,
+                data = response
+            });
         }
 
         [HttpGet("claim/{claimId:int}")]
         public async Task<IActionResult> GetByClaim(int claimId)
         {
             var quotes = await _quoteService.GetByClaimAsync(claimId);
-            return Ok(quotes);
+
+            var response = quotes.Select(q => new
+            {
+                quoteId = q.QuoteId,
+                claimId = q.PolicyId,
+                providerId = q.ProviderId,
+                amount = q.Amount,
+                status = q.Status.ToString(),
+                dateSubmitted = q.DateSubmitted,
+                documents = (q.QuoteDocuments ?? new List<QuoteDocument>()).Select(d => new
+                {
+                    id = d.Id,
+                    fileName = d.FileName,
+                    mimeType = d.MimeType,
+                    fileSizeBytes = d.FileSizeBytes,
+                    type = d.Type.ToString(),
+                    url = d.FilePath,
+                    uploadedAt = d.CreatedAt
+                }).ToList()
+            }).ToList();
+
+            return Ok(new
+            {
+                success = true,
+                count = response.Count,
+                data = response
+            });
         }
 
         [HttpGet("provider/{userId}")]
@@ -78,6 +197,13 @@ namespace InsuranceClaimsAPI.Controllers
         {
             try
             {
+                int? headerUserId = null;
+                var headerValue = Request.Headers["X-User-Id"].FirstOrDefault();
+                if (int.TryParse(headerValue, out var parsedUserId) && parsedUserId > 0)
+                {
+                    headerUserId = parsedUserId;
+                }
+
                 // Validate claim exists
                 var claim = await _claimService.GetAsync(request.ClaimId);
                 if (claim == null)
@@ -92,6 +218,11 @@ namespace InsuranceClaimsAPI.Controllers
                     return BadRequest(new { success = false, error = "Claim has no associated provider" });
                 }
 
+                if (!headerUserId.HasValue)
+                {
+                    headerUserId = providerId;
+                }
+
                 // Create quote
                 var quote = new Quote
                 {
@@ -102,7 +233,11 @@ namespace InsuranceClaimsAPI.Controllers
                     DateSubmitted = DateTime.UtcNow
                 };
 
-                var createdQuote = await _quoteService.SubmitAsync(quote);
+                var createdQuote = await _quoteService.SubmitAsync(
+                    quote,
+                    headerUserId,
+                    request.Attachments,
+                    HttpContext.RequestAborted);
 
                 // Best-effort email notifications
                 try
@@ -143,7 +278,17 @@ namespace InsuranceClaimsAPI.Controllers
                         providerId = createdQuote.ProviderId,
                         amount = createdQuote.Amount,
                         status = createdQuote.Status.ToString(),
-                        dateSubmitted = createdQuote.DateSubmitted
+                        dateSubmitted = createdQuote.DateSubmitted,
+                        attachmentsUploaded = createdQuote.QuoteDocuments?.Count ?? 0,
+                        attachments = createdQuote.QuoteDocuments?.Select(d => new
+                        {
+                            id = d.Id,
+                            fileName = d.FileName,
+                            mimeType = d.MimeType,
+                            fileSizeBytes = d.FileSizeBytes,
+                            type = d.Type.ToString(),
+                            url = d.FilePath
+                        })
                     }
                 });
             }
