@@ -595,6 +595,41 @@ namespace InsuranceClaimsAPI.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Generates an invoice PDF for a quote with claim details
+        /// </summary>
+        [HttpGet("{quoteId:int}/invoice/pdf")]
+        public async Task<IActionResult> GenerateInvoicePdf(int quoteId)
+        {
+            try
+            {
+                var pdfBytes = await _quoteService.GenerateInvoicePdfAsync(quoteId);
+                
+                var fileName = $"Invoice_Quote_{quoteId}_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
+                
+                return File(pdfBytes, "application/pdf", fileName);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Quote or claim not found for quote {QuoteId}", quoteId);
+                return NotFound(new 
+                { 
+                    success = false, 
+                    error = ex.Message 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating invoice PDF for quote {QuoteId}", quoteId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to generate invoice PDF",
+                    details = ex.Message
+                });
+            }
+        }
     }
 }
 

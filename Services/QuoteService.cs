@@ -9,6 +9,9 @@ using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Quotes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 
 namespace InsuranceClaimsAPI.Services
 {
@@ -30,6 +33,7 @@ namespace InsuranceClaimsAPI.Services
             int uploadedById,
             IEnumerable<QuoteAttachmentRequest> attachments,
             CancellationToken cancellationToken = default);
+        Task<byte[]> GenerateInvoicePdfAsync(int quoteId);
     }
 
     public class QuoteService : IQuoteService
@@ -504,6 +508,247 @@ namespace InsuranceClaimsAPI.Services
 
                 return MimeToExtension.TryGetValue(mimeType, out var extension) ? extension : null;
             }
+        }
+
+        public async Task<byte[]> GenerateInvoicePdfAsync(int quoteId)
+        {
+            var quote = await _context.Quotes
+                .Include(q => q.Policy)
+                    .ThenInclude(c => c.Provider)
+                .Include(q => q.Policy)
+                    .ThenInclude(c => c.Insurer)
+                .Include(q => q.Provider)
+                .FirstOrDefaultAsync(q => q.QuoteId == quoteId);
+
+            if (quote == null)
+            {
+                throw new InvalidOperationException($"Quote with ID {quoteId} was not found");
+            }
+
+            if (quote.Policy == null)
+            {
+                throw new InvalidOperationException($"Claim associated with quote {quoteId} was not found");
+            }
+
+            var claim = quote.Policy;
+            var provider = quote.Provider ?? claim.Provider;
+            var insurer = claim.Insurer;
+
+            // Generate PDF using QuestPDF
+            QuestPDF.Settings.License = LicenseType.Community;
+            
+            var pdfBytes = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4);
+                    page.Margin(2, Unit.Centimetre);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(10));
+
+                    page.Header()
+                        .Row(row =>
+                        {
+                            row.RelativeItem().Column(column =>
+                            {
+                                column.Item().Text("INVOICE").FontSize(24).Bold().FontColor(Colors.Blue.Darken2);
+                                column.Item().Text($"Quote #: {quote.QuoteId}").FontSize(12);
+                                column.Item().Text($"Date: {quote.DateSubmitted:MMMM dd, yyyy}").FontSize(12);
+                            });
+
+                            row.ConstantItem(100).AlignRight().Column(column =>
+                            {
+                                column.Item().Text("Status:").FontSize(10);
+                                column.Item().Text(quote.Status.ToString()).FontSize(12).Bold().FontColor(GetStatusColor(quote.Status));
+                            });
+                        });
+
+                    page.Content()
+                        .PaddingVertical(1, Unit.Centimetre)
+                        .Column(column =>
+                        {
+                            column.Spacing(1, Unit.Centimetre);
+
+                            // Company Information
+                            column.Item().Row(row =>
+                            {
+                                row.RelativeItem().Column(col =>
+                                {
+                                    col.Item().Text("FROM:").FontSize(11).Bold().FontColor(Colors.Grey.Darken2);
+                                    col.Item().Text(provider?.CompanyName ?? $"{provider?.FirstName} {provider?.LastName}").FontSize(12).Bold();
+                                    if (!string.IsNullOrWhiteSpace(provider?.Address))
+                                    {
+                                        col.Item().Text(provider.Address).FontSize(10);
+                                        if (!string.IsNullOrWhiteSpace(provider.City))
+                                        {
+                                            col.Item().Text($"{provider.City}, {provider.PostalCode} {provider.Country}").FontSize(10);
+                                        }
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(provider?.Email))
+                                    {
+                                        col.Item().Text($"Email: {provider.Email}").FontSize(10);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(provider?.PhoneNumber))
+                                    {
+                                        col.Item().Text($"Phone: {provider.PhoneNumber}").FontSize(10);
+                                    }
+                                });
+
+                                row.RelativeItem().Column(col =>
+                                {
+                                    col.Item().Text("TO:").FontSize(11).Bold().FontColor(Colors.Grey.Darken2);
+                                    col.Item().Text(insurer?.CompanyName ?? $"{insurer?.FirstName} {insurer?.LastName}").FontSize(12).Bold();
+                                    if (!string.IsNullOrWhiteSpace(insurer?.Address))
+                                    {
+                                        col.Item().Text(insurer.Address).FontSize(10);
+                                        if (!string.IsNullOrWhiteSpace(insurer.City))
+                                        {
+                                            col.Item().Text($"{insurer.City}, {insurer.PostalCode} {insurer.Country}").FontSize(10);
+                                        }
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(insurer?.Email))
+                                    {
+                                        col.Item().Text($"Email: {insurer.Email}").FontSize(10);
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(insurer?.PhoneNumber))
+                                    {
+                                        col.Item().Text($"Phone: {insurer.PhoneNumber}").FontSize(10);
+                                    }
+                                });
+                            });
+
+                            column.Item().PaddingTop(0.5f, Unit.Centimetre).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
+
+                            // Claim Details Section
+                            column.Item().Text("CLAIM DETAILS").FontSize(14).Bold().FontColor(Colors.Blue.Darken2);
+                            column.Item().PaddingTop(0.3f, Unit.Centimetre).Row(row =>
+                            {
+                                row.RelativeItem().Column(col =>
+                                {
+                                    col.Item().Text($"Claim Number: {claim.ClaimNumber}").FontSize(11);
+                                    col.Item().Text($"Title: {claim.Title}").FontSize(11);
+                                    col.Item().Text($"Policy Number: {claim.PolicyNumber ?? "N/A"}").FontSize(11);
+                                    col.Item().Text($"Policy Holder: {claim.PolicyHolderName ?? "N/A"}").FontSize(11);
+                                });
+
+                                row.RelativeItem().Column(col =>
+                                {
+                                    col.Item().Text($"Status: {claim.Status}").FontSize(11);
+                                    col.Item().Text($"Priority: {claim.Priority}").FontSize(11);
+                                    if (claim.IncidentDate.HasValue)
+                                    {
+                                        col.Item().Text($"Incident Date: {claim.IncidentDate.Value:MMMM dd, yyyy}").FontSize(11);
+                                    }
+                                    if (claim.IncidentLocation != null)
+                                    {
+                                        col.Item().Text($"Location: {claim.IncidentLocation}").FontSize(11);
+                                    }
+                                });
+                            });
+
+                            if (!string.IsNullOrWhiteSpace(claim.Description))
+                            {
+                                column.Item().PaddingTop(0.3f, Unit.Centimetre).Text("Description:").FontSize(11).Bold();
+                                column.Item().Text(claim.Description).FontSize(10).LineHeight(1.4f);
+                            }
+
+                            column.Item().PaddingTop(0.5f, Unit.Centimetre).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
+
+                            // Quote/Invoice Details
+                            column.Item().Text("INVOICE DETAILS").FontSize(14).Bold().FontColor(Colors.Blue.Darken2);
+                            column.Item().PaddingTop(0.3f, Unit.Centimetre)
+                                .Table(table =>
+                                {
+                                    table.ColumnsDefinition(columns =>
+                                    {
+                                        columns.RelativeColumn();
+                                        columns.ConstantColumn(120);
+                                    });
+
+                                    table.Header(header =>
+                                    {
+                                        header.Cell().Element(CellStyle).Text("Item").Bold();
+                                        header.Cell().Element(CellStyle).AlignRight().Text("Amount").Bold();
+
+                                        static IContainer CellStyle(IContainer container)
+                                        {
+                                            return container
+                                                .BorderBottom(1)
+                                                .BorderColor(Colors.Grey.Lighten1)
+                                                .PaddingVertical(5)
+                                                .PaddingHorizontal(5);
+                                        }
+                                    });
+
+                                    table.Cell().Element(CellStyle).Text($"Quote for Claim #{claim.ClaimNumber}");
+                                    table.Cell().Element(CellStyle).AlignRight().Text($"${quote.Amount:N2}");
+
+                                    static IContainer CellStyle(IContainer container)
+                                    {
+                                        return container
+                                            .BorderBottom(1)
+                                            .BorderColor(Colors.Grey.Lighten1)
+                                            .PaddingVertical(8)
+                                            .PaddingHorizontal(5);
+                                    }
+                                });
+
+                            // Summary Section
+                            column.Item().PaddingTop(0.5f, Unit.Centimetre).AlignRight().Column(summary =>
+                            {
+                                summary.Item().Width(200).Row(row =>
+                                {
+                                    row.RelativeItem().Text("Subtotal:").FontSize(11);
+                                    row.ConstantItem(100).AlignRight().Text($"${quote.Amount:N2}").FontSize(11);
+                                });
+
+                                summary.Item().Width(200).Row(row =>
+                                {
+                                    row.RelativeItem().Text("Total Amount:").FontSize(12).Bold();
+                                    row.ConstantItem(100).AlignRight().Text($"${quote.Amount:N2}").FontSize(12).Bold().FontColor(Colors.Blue.Darken2);
+                                });
+                            });
+
+                            column.Item().PaddingTop(1, Unit.Centimetre).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
+
+                            // Additional Information
+                            if (!string.IsNullOrWhiteSpace(claim.Notes))
+                            {
+                                column.Item().PaddingTop(0.5f, Unit.Centimetre).Text("Notes:").FontSize(11).Bold();
+                                column.Item().Text(claim.Notes).FontSize(10).LineHeight(1.4f);
+                            }
+
+                            column.Item().PaddingTop(0.5f, Unit.Centimetre).Text($"Estimated Amount: ${claim.EstimatedAmount:N2}").FontSize(10).FontColor(Colors.Grey.Darken1);
+                            if (claim.ApprovedAmount > 0)
+                            {
+                                column.Item().Text($"Approved Amount: ${claim.ApprovedAmount:N2}").FontSize(10).FontColor(Colors.Grey.Darken1);
+                            }
+                        });
+
+                    page.Footer()
+                        .AlignCenter()
+                        .Text(x =>
+                        {
+                            x.Span("Generated on ").FontSize(8).FontColor(Colors.Grey.Medium);
+                            x.Span($"{DateTime.UtcNow:MMMM dd, yyyy 'at' HH:mm:ss UTC}").FontSize(8).FontColor(Colors.Grey.Medium);
+                        });
+                });
+            })
+            .GeneratePdf();
+
+            return pdfBytes;
+        }
+
+        private static string GetStatusColor(QuoteStatus status)
+        {
+            return status switch
+            {
+                QuoteStatus.Approved => Colors.Green.Darken2,
+                QuoteStatus.Rejected => Colors.Red.Darken2,
+                QuoteStatus.Revised => Colors.Orange.Darken2,
+                QuoteStatus.Submitted => Colors.Blue.Darken2,
+                _ => Colors.Grey.Darken2
+            };
         }
     }
 }
