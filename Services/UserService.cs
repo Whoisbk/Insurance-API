@@ -106,6 +106,12 @@ namespace InsuranceClaimsAPI.Services
                 .AnyAsync(u => u.Email.ToLower() == email.ToLower());
         }
 
+        public async Task<bool> EmailExistsForAnotherUserAsync(int userId, string email)
+        {
+            return await _context.Users
+                .AnyAsync(u => u.Id != userId && u.Email.ToLower() == email.ToLower());
+        }
+
         public async Task<List<User>> GetUsersByRoleAsync(UserRole role)
         {
             return await _context.Users

@@ -32,6 +32,8 @@ namespace InsuranceClaimsAPI.Models.Domain
         [Required]
         public int ClaimId { get; set; }
 
+        public int? QuoteId { get; set; }
+
         [Required]
         public int SenderId { get; set; }
 
@@ -73,6 +75,9 @@ namespace InsuranceClaimsAPI.Models.Domain
         // Navigation properties
         [ForeignKey("ClaimId")]
         public virtual Claim Claim { get; set; } = null!;
+
+        [ForeignKey("QuoteId")]
+        public virtual Quote? Quote { get; set; }
 
         [ForeignKey("SenderId")]
         public virtual User sender { get; set; } = null!;

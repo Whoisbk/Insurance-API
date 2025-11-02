@@ -31,10 +31,15 @@ namespace InsuranceClaimsAPI.Services
             _context.Notifications.Add(notification);
             await _context.SaveChangesAsync();
 
+            // Send real-time notification via SignalR with full details
             await _hubContext.Clients.Group($"User_{notification.UserId}").SendAsync("ReceiveNotification", new
             {
+                NotificationId = notification.NotificationId,
+                UserId = notification.UserId,
+                QuoteId = notification.QuoteId,
                 Message = notification.Message,
                 Status = notification.Status.ToString(),
+                DateSent = notification.DateSent,
                 Timestamp = DateTime.UtcNow
             });
 

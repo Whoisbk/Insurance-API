@@ -13,11 +13,13 @@ namespace InsuranceClaimsAPI.Controllers
     {
         private readonly IUserService _userService;
         private readonly ILogger<TestController> _logger;
+        private readonly IEmailService _emailService;
 
-        public TestController(IUserService userService, ILogger<TestController> logger)
+        public TestController(IUserService userService, ILogger<TestController> logger, IEmailService emailService)
         {
             _userService = userService;
             _logger = logger;
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -165,6 +167,31 @@ namespace InsuranceClaimsAPI.Controllers
                     details = ex.Message
                 });
             }
+        }
+
+        /// <summary>
+        /// Send a test email via Resend/EmailService
+        /// </summary>
+        [HttpPost("send-email-test")]
+        public async Task<IActionResult> SendEmailTest([FromBody] SendEmailTestRequest request)
+        {
+            try
+            {
+                await _emailService.SendAsync(request.To, request.Subject ?? "Test Email", request.Html ?? "<p>Hello from InsuranceClaimsAPI</p>");
+                return Ok(new { success = true, message = "Email queued (best-effort)", to = request.To });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send test email to {Email}", request.To);
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        public class SendEmailTestRequest
+        {
+            public string To { get; set; } = string.Empty;
+            public string? Subject { get; set; }
+            public string? Html { get; set; }
         }
     }
 }

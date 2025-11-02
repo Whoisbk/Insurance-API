@@ -39,6 +39,7 @@ namespace InsuranceClaimsAPI.Models.Domain
         public virtual User Provider { get; set; } = null!;
 
         public virtual ICollection<QuoteDocument> QuoteDocuments { get; set; } = new List<QuoteDocument>();
+        public virtual ICollection<Message> Messages { get; set; } = new List<Message>();
         public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
     }
 }
