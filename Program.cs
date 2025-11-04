@@ -143,6 +143,13 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Configure port for Render deployment (uses PORT env var if available)
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    app.Urls.Add($"http://0.0.0.0:{port}");
+}
+
 app.Run();
 
 // Configure Logging
