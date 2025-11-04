@@ -47,11 +47,25 @@ JwtSettings__RefreshTokenExpiryInDays=7
 ```
 
 #### Firebase Configuration
+
+**Important**: When setting the Firebase private key via environment variables, you need to preserve the newlines. Here are two options:
+
+**Option 1: Using \n (recommended for Render)**
 ```
 Firebase__ProjectId=your-firebase-project-id
-Firebase__PrivateKey=-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY_HERE\n-----END PRIVATE KEY-----\n
+Firebase__PrivateKey=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDS16v7EnjhjJNz\n...your full private key...\n-----END PRIVATE KEY-----\n
 Firebase__ClientEmail=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
 ```
+
+**Option 2: Using ConnectionStrings__DefaultConnection format (alternative)**
+You can also use the double underscore format:
+```
+Firebase:ProjectId=your-firebase-project-id
+Firebase:PrivateKey=-----BEGIN PRIVATE KEY-----\n...full key...\n-----END PRIVATE KEY-----\n
+Firebase:ClientEmail=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
+```
+
+**Note**: The application will automatically convert `\n` to actual newlines. Make sure your private key includes the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` markers.
 
 #### Email Configuration
 ```
@@ -106,10 +120,16 @@ docker-compose up --build
 - Verify Dockerfile syntax
 - Check Render build logs for specific errors
 
-### Application Won't Start
+### Application Won't Start / Status 139 Error
+- **Firebase Configuration**: This is the most common cause. Ensure:
+  - All three Firebase environment variables are set: `Firebase__ProjectId`, `Firebase__PrivateKey`, `Firebase__ClientEmail`
+  - The private key includes `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` markers
+  - Use `\n` for newlines in the private key (the app will convert them automatically)
+  - Example: `Firebase__PrivateKey=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSj...\n-----END PRIVATE KEY-----\n`
 - Verify all environment variables are set correctly
 - Check database connection string format
-- Review application logs in Render dashboard
+- Review application logs in Render dashboard for specific error messages
+- The app will now continue even if Firebase fails to initialize (non-critical)
 
 ### Database Connection Issues
 - Ensure MySQL is accessible from Render (check firewall rules)
