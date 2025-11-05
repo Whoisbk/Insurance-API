@@ -60,8 +60,16 @@ builder.Services.AddAutoMapper(typeof(MappingProfile));
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
 
-// Initialize Firebase
-FirebaseConfig.InitializeFirebase(builder.Configuration, Log.Logger);
+// Initialize Firebase (non-blocking - app will continue even if Firebase fails)
+try
+{
+    FirebaseConfig.InitializeFirebase(builder.Configuration, Log.Logger);
+}
+catch (Exception ex)
+{
+    Log.Error(ex, "Firebase initialization failed, but application will continue. Some features may not work.");
+    // Don't throw - allow app to start without Firebase if needed
+}
 
 // Register services
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -108,7 +116,11 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-app.UseHttpsRedirection();
+// Only redirect HTTPS in development - Render handles HTTPS termination
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Enable CORS
 app.UseCors("AllowReactApp");
