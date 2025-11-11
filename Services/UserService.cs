@@ -114,8 +114,17 @@ namespace InsuranceClaimsAPI.Services
 
         public async Task<List<User>> GetUsersByRoleAsync(UserRole role)
         {
-            return await _context.Users
-                .Where(u => u.Role == role)
+            IQueryable<User> query = _context.Users
+                .Where(u => u.Role == role);
+
+            if (role == UserRole.Provider)
+            {
+                query = query
+                    .Include(u => u.Quotes)
+                    .Include(u => u.Notifications);
+            }
+
+            return await query
                 .OrderBy(u => u.CreatedAt)
                 .ToListAsync();
         }
@@ -125,6 +134,27 @@ namespace InsuranceClaimsAPI.Services
             return await _context.Users
                 .OrderBy(u => u.CreatedAt)
                 .ToListAsync();
+        }
+
+        public async Task<User?> GetProviderByIdWithDetailsAsync(int id)
+        {
+            return await _context.Users
+                .Where(u => u.Id == id && u.Role == UserRole.Provider)
+                .Include(u => u.Quotes)
+                .Include(u => u.Notifications)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<User?> GetInsurerByIdWithDetailsAsync(int id)
+        {
+            return await _context.Users
+                .Where(u => u.Id == id && u.Role == UserRole.Insurer)
+                .Include(u => u.ManagedClaims)
+                    .ThenInclude(c => c.Provider)
+                .Include(u => u.ManagedClaims)
+                    .ThenInclude(c => c.Quotes)
+                .Include(u => u.Notifications)
+                .FirstOrDefaultAsync();
         }
     }
 }

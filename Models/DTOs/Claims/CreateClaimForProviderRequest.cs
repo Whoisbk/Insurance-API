@@ -32,6 +32,22 @@ namespace InsuranceClaimsAPI.Models.DTOs.Claims
         [MaxLength(100)]
         public string? PolicyHolderName { get; set; }
 
+        [MaxLength(150)]
+        public string? ClientFullName { get; set; }
+
+        [MaxLength(255)]
+        [EmailAddress]
+        public string? ClientEmailAddress { get; set; }
+
+        [MaxLength(50)]
+        public string? ClientPhoneNumber { get; set; }
+
+        [MaxLength(500)]
+        public string? ClientAddress { get; set; }
+
+        [MaxLength(255)]
+        public string? ClientCompany { get; set; }
+
         [MaxLength(255)]
         public string? IncidentLocation { get; set; }
 

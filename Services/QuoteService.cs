@@ -27,6 +27,7 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Quote>> GetAllAsync();
         Task<Quote?> GetByIdAsync(int quoteId);
         Task<IReadOnlyList<Quote>> GetByProviderFirebaseIdAsync(string firebaseUid);
+        Task<IReadOnlyList<Quote>> GetForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int quoteId);
         Task<IReadOnlyList<QuoteDocument>> AddDocumentsAsync(
             int quoteId,
@@ -202,6 +203,17 @@ namespace InsuranceClaimsAPI.Services
                 .Include(q => q.Policy)
                 .Include(q => q.QuoteDocuments)
                 .Where(q => q.ProviderId == provider.Id)
+                .OrderByDescending(q => q.DateSubmitted)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Quote>> GetForInsurerAsync(int insurerId)
+        {
+            return await _context.Quotes
+                .Include(q => q.Policy)
+                    .ThenInclude(c => c.Provider)
+                .Include(q => q.QuoteDocuments)
+                .Where(q => q.Policy != null && q.Policy.InsurerId == insurerId)
                 .OrderByDescending(q => q.DateSubmitted)
                 .ToListAsync();
         }

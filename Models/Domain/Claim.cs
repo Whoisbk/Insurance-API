@@ -59,6 +59,22 @@ namespace InsuranceClaimsAPI.Models.Domain
         [MaxLength(100)]
         public string? PolicyHolderName { get; set; }
 
+        [MaxLength(150)]
+        public string? ClientFullName { get; set; }
+
+        [MaxLength(255)]
+        [EmailAddress]
+        public string? ClientEmailAddress { get; set; }
+
+        [MaxLength(50)]
+        public string? ClientPhoneNumber { get; set; }
+
+        [MaxLength(500)]
+        public string? ClientAddress { get; set; }
+
+        [MaxLength(255)]
+        public string? ClientCompany { get; set; }
+
         [MaxLength(255)]
         public string? IncidentLocation { get; set; }
 
@@ -77,10 +93,10 @@ namespace InsuranceClaimsAPI.Models.Domain
 
         // Navigation properties
         [ForeignKey("ProviderId")]
-        public virtual User Provider { get; set; } = null!;
+        public virtual User? Provider { get; set; }
 
         [ForeignKey("InsurerId")]
-        public virtual User Insurer { get; set; } = null!;
+        public virtual User? Insurer { get; set; }
 
         public virtual ICollection<Quote> Quotes { get; set; } = new List<Quote>();
         public virtual ICollection<Message> Messages { get; set; } = new List<Message>();

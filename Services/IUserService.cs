@@ -17,5 +17,7 @@ namespace InsuranceClaimsAPI.Services
         Task<bool> EmailExistsForAnotherUserAsync(int userId, string email);
         Task<List<User>> GetUsersByRoleAsync(UserRole role);
         Task<List<User>> GetAllUsersAsync();
+        Task<User?> GetProviderByIdWithDetailsAsync(int id);
+        Task<User?> GetInsurerByIdWithDetailsAsync(int id);
     }
 }

@@ -78,7 +78,7 @@ namespace InsuranceClaimsAPI.Data
                     .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasOne(d => d.Insurer)
-                    .WithMany()
+                    .WithMany(u => u.ManagedClaims)
                     .HasForeignKey(d => d.InsurerId)
                     .OnDelete(DeleteBehavior.Restrict);
             });
@@ -180,7 +180,7 @@ namespace InsuranceClaimsAPI.Data
                 entity.Property(e => e.DateSent).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                 entity.HasOne(d => d.User)
-                    .WithMany()
+                    .WithMany(u => u.Notifications)
                     .HasForeignKey(d => d.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
 

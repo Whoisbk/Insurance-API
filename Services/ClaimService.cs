@@ -12,6 +12,8 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Claim>> GetAllAsync();
         Task<IReadOnlyList<Claim>> GetForUserAsync(int userId);
         Task<IReadOnlyList<Claim>> GetForProviderAsync(int providerId);
+        Task<IReadOnlyList<Claim>> GetForInsurerAsync(int insurerId);
+        Task<IReadOnlyList<User>> GetProvidersForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int claimId);
         Task UpdateStatusAsync(int claimId, ClaimStatus status);
     }
@@ -182,6 +184,30 @@ namespace InsuranceClaimsAPI.Services
                 .Include(c => c.Insurer)
                 .Where(c => c.ProviderId == providerId)
                 .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Claim>> GetForInsurerAsync(int insurerId)
+        {
+            return await _context.Claims
+                .Include(c => c.Provider)
+                .Include(c => c.Insurer)
+                .Where(c => c.InsurerId == insurerId)
+                .OrderByDescending(c => c.UpdatedAt)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<User>> GetProvidersForInsurerAsync(int insurerId)
+        {
+            var providerIdsQuery = _context.Claims
+                .Where(c => c.InsurerId == insurerId)
+                .Select(c => c.ProviderId)
+                .Distinct();
+
+            return await _context.Users
+                .Where(u => providerIdsQuery.Contains(u.Id))
+                .OrderBy(u => u.CompanyName ?? u.LastName)
+                .ThenBy(u => u.FirstName)
                 .ToListAsync();
         }
 

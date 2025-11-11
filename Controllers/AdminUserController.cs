@@ -1,4 +1,5 @@
 using FirebaseAdmin.Auth;
+using System.Security.Cryptography;
 using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Admin;
 using InsuranceClaimsAPI.Services;
@@ -34,13 +35,15 @@ namespace InsuranceClaimsAPI.Controllers
             
             try
             {
+                var generatedPassword = GenerateSecurePassword();
+
                 // Step 1: Create Firebase user with Admin SDK (doesn't log anyone in/out)
                 _logger.LogInformation($"Creating Firebase account for insurer: {request.Email}");
                 
                 var userRecordArgs = new UserRecordArgs
                 {
                     Email = request.Email,
-                    Password = request.Password,
+                    Password = generatedPassword,
                     EmailVerified = false,
                     Disabled = false,
                     DisplayName = $"{request.FirstName} {request.LastName}"
@@ -56,6 +59,16 @@ namespace InsuranceClaimsAPI.Controllers
                     { "roleId", 1 }
                 };
                 await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
+
+                string? verificationLink = null;
+                try
+                {
+                    verificationLink = await FirebaseAuth.DefaultInstance.GenerateEmailVerificationLinkAsync(request.Email);
+                }
+                catch (Exception linkEx)
+                {
+                    _logger.LogWarning(linkEx, "Failed to generate email verification link for insurer {Email}", request.Email);
+                }
 
                 // Step 3: Save to your database
                 var insurer = new User
@@ -81,10 +94,30 @@ namespace InsuranceClaimsAPI.Controllers
                 // Best-effort welcome email
                 try
                 {
+                    var verificationHtml = verificationLink != null
+                        ? $"<p>Please verify your email by <a href=\"{verificationLink}\">clicking here</a>.</p>"
+                        : "<p>We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.</p>";
+
+                    var verificationText = verificationLink != null
+                        ? $"Please verify your email by visiting: {verificationLink}"
+                        : "We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.";
+
+                    var htmlBody = $"""
+                        <p>Hi {createdInsurer.FirstName},</p>
+                        <p>Your insurer account has been created successfully.</p>
+                        <p><strong>Temporary Password:</strong> {generatedPassword}</p>
+                        <p>Please log in using this password and update it after signing in.</p>
+                        {verificationHtml}
+                        """;
+
+                    var textBody =
+                        $"Hi {createdInsurer.FirstName},\n\nYour insurer account has been created successfully.\nTemporary password: {generatedPassword}\nPlease change it after signing in.\n{verificationText}";
+
                     await _emailService.SendAsync(
                         createdInsurer.Email,
                         "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdInsurer.FirstName},</p><p>Your insurer account has been created successfully.</p>");
+                        htmlBody,
+                        textBody);
                 }
                 catch (Exception emailEx)
                 {
@@ -167,13 +200,15 @@ namespace InsuranceClaimsAPI.Controllers
             
             try
             {
+                var generatedPassword = GenerateSecurePassword();
+
                 // Step 1: Create Firebase user with Admin SDK (doesn't log anyone in/out)
                 _logger.LogInformation($"Creating Firebase account for provider: {request.Email}");
                 
                 var userRecordArgs = new UserRecordArgs
                 {
                     Email = request.Email,
-                    Password = request.Password,
+                    Password = generatedPassword,
                     EmailVerified = false,
                     Disabled = false,
                     DisplayName = $"{request.FirstName} {request.LastName}"
@@ -189,6 +224,16 @@ namespace InsuranceClaimsAPI.Controllers
                     { "roleId", 2 }
                 };
                 await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
+
+                string? verificationLink = null;
+                try
+                {
+                    verificationLink = await FirebaseAuth.DefaultInstance.GenerateEmailVerificationLinkAsync(request.Email);
+                }
+                catch (Exception linkEx)
+                {
+                    _logger.LogWarning(linkEx, "Failed to generate email verification link for provider {Email}", request.Email);
+                }
 
                 // Step 3: Save to your database
                 var provider = new User
@@ -214,10 +259,30 @@ namespace InsuranceClaimsAPI.Controllers
                 // Best-effort welcome email
                 try
                 {
+                    var verificationHtml = verificationLink != null
+                        ? $"<p>Please verify your email by <a href=\"{verificationLink}\">clicking here</a>.</p>"
+                        : "<p>We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.</p>";
+
+                    var verificationText = verificationLink != null
+                        ? $"Please verify your email by visiting: {verificationLink}"
+                        : "We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.";
+
+                    var htmlBody = $"""
+                        <p>Hi {createdProvider.FirstName},</p>
+                        <p>Your provider account has been created successfully.</p>
+                        <p><strong>Temporary Password:</strong> {generatedPassword}</p>
+                        <p>Please log in using this password and update it after signing in.</p>
+                        {verificationHtml}
+                        """;
+
+                    var textBody =
+                        $"Hi {createdProvider.FirstName},\n\nYour provider account has been created successfully.\nTemporary password: {generatedPassword}\nPlease change it after signing in.\n{verificationText}";
+
                     await _emailService.SendAsync(
                         createdProvider.Email,
                         "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdProvider.FirstName},</p><p>Your provider account has been created successfully.</p>");
+                        htmlBody,
+                        textBody);
                 }
                 catch (Exception emailEx)
                 {
@@ -615,7 +680,23 @@ namespace InsuranceClaimsAPI.Controllers
                         status = (int)p.Status,
                         firebaseUid = p.FirebaseUid,
                         createdAt = p.CreatedAt,
-                        updatedAt = p.UpdatedAt
+                        updatedAt = p.UpdatedAt,
+                        quotes = p.Quotes.Select(q => new
+                        {
+                            id = q.QuoteId,
+                            policyId = q.PolicyId,
+                            amount = q.Amount,
+                            status = (int)q.Status,
+                            dateSubmitted = q.DateSubmitted
+                        }),
+                        notifications = p.Notifications.Select(n => new
+                        {
+                            id = n.NotificationId,
+                            quoteId = n.QuoteId,
+                            message = n.Message,
+                            dateSent = n.DateSent,
+                            status = n.Status.ToString()
+                        })
                     })
                 });
             }
@@ -626,6 +707,163 @@ namespace InsuranceClaimsAPI.Controllers
                 {
                     success = false,
                     error = "Failed to retrieve providers",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Gets a specific provider with related quotes and notifications
+        /// </summary>
+        [HttpGet("providers/{id:int}")]
+        public async Task<IActionResult> GetProvider(int id)
+        {
+            try
+            {
+                var provider = await _userService.GetProviderByIdWithDetailsAsync(id);
+
+                if (provider == null)
+                {
+                    return NotFound(new { success = false, error = "Provider not found" });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = provider.Id,
+                        firstName = provider.FirstName,
+                        lastName = provider.LastName,
+                        email = provider.Email,
+                        companyName = provider.CompanyName,
+                        phoneNumber = provider.PhoneNumber,
+                        address = provider.Address,
+                        city = provider.City,
+                        postalCode = provider.PostalCode,
+                        country = provider.Country,
+                        role = (int)provider.Role,
+                        status = (int)provider.Status,
+                        firebaseUid = provider.FirebaseUid,
+                        createdAt = provider.CreatedAt,
+                        updatedAt = provider.UpdatedAt,
+                        quotes = provider.Quotes.Select(q => new
+                        {
+                            id = q.QuoteId,
+                            policyId = q.PolicyId,
+                            amount = q.Amount,
+                            status = (int)q.Status,
+                            dateSubmitted = q.DateSubmitted
+                        }),
+                        notifications = provider.Notifications.Select(n => new
+                        {
+                            id = n.NotificationId,
+                            quoteId = n.QuoteId,
+                            message = n.Message,
+                            dateSent = n.DateSent,
+                            status = n.Status.ToString()
+                        })
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error getting provider {id}: {ex.Message}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to retrieve provider",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Gets a specific insurer with related claims and notifications
+        /// </summary>
+        [HttpGet("insurers/{id:int}")]
+        public async Task<IActionResult> GetInsurer(int id)
+        {
+            try
+            {
+                var insurer = await _userService.GetInsurerByIdWithDetailsAsync(id);
+
+                if (insurer == null)
+                {
+                    return NotFound(new { success = false, error = "Insurer not found" });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = insurer.Id,
+                        firstName = insurer.FirstName,
+                        lastName = insurer.LastName,
+                        email = insurer.Email,
+                        companyName = insurer.CompanyName,
+                        phoneNumber = insurer.PhoneNumber,
+                        address = insurer.Address,
+                        city = insurer.City,
+                        postalCode = insurer.PostalCode,
+                        country = insurer.Country,
+                        role = (int)insurer.Role,
+                        status = (int)insurer.Status,
+                        firebaseUid = insurer.FirebaseUid,
+                        createdAt = insurer.CreatedAt,
+                        updatedAt = insurer.UpdatedAt,
+                        claims = insurer.ManagedClaims.Select(c => new
+                        {
+                            id = c.Id,
+                            claimNumber = c.ClaimNumber,
+                            title = c.Title,
+                            clientFullName = c.ClientFullName,
+                            clientEmailAddress = c.ClientEmailAddress,
+                            clientPhoneNumber = c.ClientPhoneNumber,
+                            clientAddress = c.ClientAddress,
+                            clientCompany = c.ClientCompany,
+                            status = (int)c.Status,
+                            priority = (int)c.Priority,
+                            provider = c.Provider != null ? new
+                            {
+                                id = c.Provider.Id,
+                                firstName = c.Provider.FirstName,
+                                lastName = c.Provider.LastName,
+                                companyName = c.Provider.CompanyName
+                            } : null,
+                            estimatedAmount = c.EstimatedAmount,
+                            approvedAmount = c.ApprovedAmount,
+                            policyNumber = c.PolicyNumber,
+                            policyHolderName = c.PolicyHolderName,
+                            createdAt = c.CreatedAt,
+                            updatedAt = c.UpdatedAt,
+                            quotes = c.Quotes.Select(q => new
+                            {
+                                id = q.QuoteId,
+                                amount = q.Amount,
+                                status = (int)q.Status,
+                                dateSubmitted = q.DateSubmitted
+                            })
+                        }),
+                        notifications = insurer.Notifications.Select(n => new
+                        {
+                            id = n.NotificationId,
+                            quoteId = n.QuoteId,
+                            message = n.Message,
+                            dateSent = n.DateSent,
+                            status = n.Status.ToString()
+                        })
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error getting insurer {id}: {ex.Message}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to retrieve insurer",
                     details = ex.Message
                 });
             }
@@ -660,7 +898,7 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
-        /// Creates a new admin with Firebase authentication (actually creates Insurer - Role 1)
+        /// Creates a new admin with Firebase authentication
         /// </summary>
         [HttpPost("admins")]
         // [Authorize(Roles = "Admin")]
@@ -670,13 +908,15 @@ namespace InsuranceClaimsAPI.Controllers
             
             try
             {
+                var generatedPassword = GenerateSecurePassword();
+
                 // Step 1: Create Firebase user with Admin SDK
-                _logger.LogInformation($"Creating Firebase account for insurer: {request.Email}");
+                _logger.LogInformation($"Creating Firebase account for admin: {request.Email}");
                 
                 var userRecordArgs = new UserRecordArgs
                 {
                     Email = request.Email,
-                    Password = request.Password,
+                    Password = generatedPassword,
                     EmailVerified = false,
                     Disabled = false,
                     DisplayName = $"{request.FirstName} {request.LastName}"
@@ -685,15 +925,25 @@ namespace InsuranceClaimsAPI.Controllers
                 firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
                 _logger.LogInformation($"Firebase user created with UID: {firebaseUser.Uid}");
 
-                // Step 2: Set custom claims for role-based access (Insurer role)
+                // Step 2: Set custom claims for role-based access (Admin role)
                 var claims = new Dictionary<string, object>
                 {
-                    { "role", "insurer" },
-                    { "roleId", 1 }
+                    { "role", "admin" },
+                    { "roleId", 3 }
                 };
                 await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
 
-                // Step 3: Save to your database as Insurer (Role = 1)
+                string? verificationLink = null;
+                try
+                {
+                    verificationLink = await FirebaseAuth.DefaultInstance.GenerateEmailVerificationLinkAsync(request.Email);
+                }
+                catch (Exception linkEx)
+                {
+                    _logger.LogWarning(linkEx, "Failed to generate email verification link for admin {Email}", request.Email);
+                }
+
+                // Step 3: Save to your database as Admin (Role = 3)
                 var admin = new User
                 {
                     FirebaseUid = firebaseUser.Uid,
@@ -705,21 +955,41 @@ namespace InsuranceClaimsAPI.Controllers
                     City = request.City,
                     PostalCode = request.PostalCode,
                     Country = request.Country,
-                    Role = UserRole.Insurer,
+                    Role = UserRole.Admin,
                     Status = UserStatus.Active,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
 
-                var createdAdmin = await _userService.CreateInsurerAsync(admin);
+                var createdAdmin = await _userService.CreateAdminAsync(admin);
 
                 // Best-effort welcome email
                 try
                 {
+                    var verificationHtml = verificationLink != null
+                        ? $"<p>Please verify your email by <a href=\"{verificationLink}\">clicking here</a>.</p>"
+                        : "<p>We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.</p>";
+
+                    var verificationText = verificationLink != null
+                        ? $"Please verify your email by visiting: {verificationLink}"
+                        : "We couldn't generate your verification link automatically. Please contact support if you need assistance verifying your email.";
+
+                    var htmlBody = $"""
+                        <p>Hi {createdAdmin.FirstName},</p>
+                        <p>Your admin account has been created successfully.</p>
+                        <p><strong>Temporary Password:</strong> {generatedPassword}</p>
+                        <p>Please log in using this password and update it after signing in.</p>
+                        {verificationHtml}
+                        """;
+
+                    var textBody =
+                        $"Hi {createdAdmin.FirstName},\n\nYour admin account has been created successfully.\nTemporary password: {generatedPassword}\nPlease change it after signing in.\n{verificationText}";
+
                     await _emailService.SendAsync(
                         createdAdmin.Email,
                         "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdAdmin.FirstName},</p><p>Your admin account has been created successfully.</p>");
+                        htmlBody,
+                        textBody);
                 }
                 catch (Exception emailEx)
                 {
@@ -729,7 +999,7 @@ namespace InsuranceClaimsAPI.Controllers
                 return Ok(new
                 {
                     success = true,
-                    message = "Insurer created successfully",
+                    message = "Admin created successfully",
                     data = new
                     {
                         id = createdAdmin.Id,
@@ -762,7 +1032,7 @@ namespace InsuranceClaimsAPI.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating insurer: {ex.Message}");
+                _logger.LogError($"Error creating admin: {ex.Message}");
 
                 // If database save failed but Firebase user was created, clean up
                 if (firebaseUser != null)
@@ -783,10 +1053,45 @@ namespace InsuranceClaimsAPI.Controllers
                 return StatusCode(500, new
                 {
                     success = false,
-                    error = "Failed to create insurer",
+                    error = "Failed to create admin",
                     details = ex.Message
                 });
             }
+        }
+
+        private static string GenerateSecurePassword(int length = 12)
+        {
+            if (length < 8)
+            {
+                length = 8;
+            }
+
+            const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const string lower = "abcdefghijklmnopqrstuvwxyz";
+            const string digits = "0123456789";
+            const string special = "@$!%*?&";
+
+            var allChars = upper + lower + digits + special;
+            var passwordChars = new char[length];
+            var position = 0;
+
+            passwordChars[position++] = upper[RandomNumberGenerator.GetInt32(upper.Length)];
+            passwordChars[position++] = lower[RandomNumberGenerator.GetInt32(lower.Length)];
+            passwordChars[position++] = digits[RandomNumberGenerator.GetInt32(digits.Length)];
+            passwordChars[position++] = special[RandomNumberGenerator.GetInt32(special.Length)];
+
+            while (position < length)
+            {
+                passwordChars[position++] = allChars[RandomNumberGenerator.GetInt32(allChars.Length)];
+            }
+
+            for (var i = passwordChars.Length - 1; i > 0; i--)
+            {
+                var swapIndex = RandomNumberGenerator.GetInt32(i + 1);
+                (passwordChars[i], passwordChars[swapIndex]) = (passwordChars[swapIndex], passwordChars[i]);
+            }
+
+            return new string(passwordChars);
         }
 
         /// <summary>
@@ -884,15 +1189,16 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
-        /// Gets all admins (Role = 1, Insurers)
+        /// Gets all admins (Role = 3, Admins)
         /// </summary>
         [HttpGet("admins")]
+        [HttpGet("/api/Admin/users")]
         // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetAdmins()
         {
             try
             {
-                var admins = await _userService.GetUsersByRoleAsync(UserRole.Insurer);
+                var admins = await _userService.GetUsersByRoleAsync(UserRole.Admin);
                 return Ok(new
                 {
                     success = true,
