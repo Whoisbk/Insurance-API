@@ -74,8 +74,7 @@ Content-Type: application/json
 {
   "claimId": 10,
   "amount": 8750.0,
-  "attachments": [
-  ]
+  "attachments": []
 }
 ```
 
@@ -85,8 +84,7 @@ Content-Type: application/json
 {
   "claimId": 10,
   "amount": 8750.0,
-  "attachments": [
-  ]
+  "attachments": []
 }
 ```
 

@@ -19,15 +19,26 @@ namespace InsuranceClaimsAPI.Configuration
                     return;
                 }
 
-                // Get Firebase configuration from appsettings
-                var projectId = configuration["Firebase:ProjectId"];
-                var privateKey = configuration["Firebase:PrivateKey"] ?? configuration["Firebase:private_key"];
-                var clientEmail = configuration["Firebase:ClientEmail"];
+                // Get Firebase configuration from appsettings or environment variables
+                var projectId = configuration["Firebase:ProjectId"] ?? Environment.GetEnvironmentVariable("Firebase__ProjectId");
+                var privateKey = configuration["Firebase:PrivateKey"] ?? configuration["Firebase:private_key"] ?? Environment.GetEnvironmentVariable("Firebase__PrivateKey");
+                var clientEmail = configuration["Firebase:ClientEmail"] ?? Environment.GetEnvironmentVariable("Firebase__ClientEmail");
 
                 if (string.IsNullOrEmpty(projectId) || string.IsNullOrEmpty(privateKey) || string.IsNullOrEmpty(clientEmail))
                 {
                     logger.Warning("Firebase configuration is incomplete. Firebase Admin SDK will not be initialized.");
                     return;
+                }
+
+                // Handle private key format - replace literal \n with actual newlines
+                // This is important when setting keys via environment variables
+                privateKey = privateKey.Replace("\\n", "\n");
+
+                // Validate private key format
+                if (!privateKey.Contains("BEGIN PRIVATE KEY") || !privateKey.Contains("END PRIVATE KEY"))
+                {
+                    logger.Error("Firebase private key format is invalid. It should include BEGIN/END PRIVATE KEY markers.");
+                    throw new InvalidOperationException("Invalid Firebase private key format");
                 }
 
                 // Create credentials from configuration

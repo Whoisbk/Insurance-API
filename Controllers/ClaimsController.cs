@@ -2,6 +2,8 @@ using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Claims;
 using InsuranceClaimsAPI.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using ClaimEntity = InsuranceClaimsAPI.Models.Domain.Claim;
 
 namespace InsuranceClaimsAPI.Controllers
@@ -108,10 +110,75 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] ClaimEntity claim)
+        public async Task<IActionResult> Create([FromBody] CreateClaimRequest request)
         {
-            var created = await _claimService.CreateAsync(claim);
-            return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    error = "Validation failed",
+                    details = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList()
+                });
+            }
+
+            try
+            {
+                // Map DTO to Claim entity
+                var claim = new ClaimEntity
+                {
+                    ClaimNumber = request.ClaimNumber,
+                    Title = request.Title,
+                    Description = request.Description,
+                    ProviderId = request.ProviderId,
+                    InsurerId = request.InsurerId,
+                    Status = request.Status,
+                    Priority = request.Priority,
+                    EstimatedAmount = request.EstimatedAmount,
+                    ApprovedAmount = request.ApprovedAmount,
+                    PolicyNumber = request.PolicyNumber,
+                    PolicyHolderName = request.PolicyHolderName,
+                    IncidentLocation = request.IncidentLocation,
+                    IncidentDate = request.IncidentDate,
+                    DueDate = request.DueDate,
+                    Notes = request.Notes,
+                    Category = request.Category
+                };
+
+                var created = await _claimService.CreateAsync(claim);
+                return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+            }
+            catch (DbUpdateException ex)
+            {
+                if (ex.InnerException?.Message.Contains("Duplicate entry") == true || 
+                    ex.InnerException?.Message.Contains("ClaimNumber") == true ||
+                    ex.Message.Contains("Duplicate entry"))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        error = "Claim number already exists. Please use a unique claim number or use the /for-provider endpoint to auto-generate one."
+                    });
+                }
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Database error occurred",
+                    details = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "An error occurred while creating the claim",
+                    details = ex.Message
+                });
+            }
         }
 
         /// <summary>
@@ -175,7 +242,49 @@ namespace InsuranceClaimsAPI.Controllers
 
             return NoContent();
         }
+
+        public class CreateClaimRequest
+        {
+            [Required]
+            [MaxLength(50)]
+            public string ClaimNumber { get; set; } = string.Empty;
+
+            [Required]
+            [MaxLength(255)]
+            public string Title { get; set; } = string.Empty;
+
+            [MaxLength(2000)]
+            public string? Description { get; set; }
+
+            [Required]
+            public int ProviderId { get; set; }
+
+            [Required]
+            public int InsurerId { get; set; }
+
+            public ClaimStatus Status { get; set; }
+            public ClaimPriority Priority { get; set; }
+
+            public decimal EstimatedAmount { get; set; }
+            public decimal ApprovedAmount { get; set; }
+
+            [MaxLength(100)]
+            public string? PolicyNumber { get; set; }
+
+            [MaxLength(100)]
+            public string? PolicyHolderName { get; set; }
+
+            [MaxLength(255)]
+            public string? IncidentLocation { get; set; }
+
+            public DateTime? IncidentDate { get; set; }
+            public DateTime? DueDate { get; set; }
+
+            [MaxLength(1000)]
+            public string? Notes { get; set; }
+
+            [MaxLength(100)]
+            public string? Category { get; set; }
+        }
     }
 }
-
-
