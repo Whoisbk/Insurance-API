@@ -838,15 +838,25 @@ namespace InsuranceClaimsAPI.Controllers
 
         /// <summary>
         /// Updates provider information
-        /// Supports both /api/AdminUser/providers/{id} and /api/providers/edit/{id} routes
+        /// Route: /api/AdminUser/providers/{id}
         /// </summary>
         [HttpPut("providers/{id}")]
-        [HttpPut("providers/edit/{id}")]
-        [HttpPut("/api/providers/edit/{id}")]
         public async Task<IActionResult> UpdateProvider(int id, [FromBody] UpdateProviderRequest request)
         {
             try
             {
+                // Validate request is not null
+                if (request == null)
+                {
+                    return BadRequest(new { success = false, error = "Request body is required" });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new { success = false, error = "Invalid request data", details = ModelState });
+                }
+
                 var provider = await _userService.GetUserByIdAsync(id);
                 if (provider == null || provider.Role != UserRole.Provider)
                 {
