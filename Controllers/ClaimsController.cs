@@ -2,6 +2,8 @@ using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Claims;
 using InsuranceClaimsAPI.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using ClaimEntity = InsuranceClaimsAPI.Models.Domain.Claim;
 
 namespace InsuranceClaimsAPI.Controllers
@@ -239,7 +241,49 @@ namespace InsuranceClaimsAPI.Controllers
 
             return NoContent();
         }
+
+        public class CreateClaimRequest
+        {
+            [Required]
+            [MaxLength(50)]
+            public string ClaimNumber { get; set; } = string.Empty;
+
+            [Required]
+            [MaxLength(255)]
+            public string Title { get; set; } = string.Empty;
+
+            [MaxLength(2000)]
+            public string? Description { get; set; }
+
+            [Required]
+            public int ProviderId { get; set; }
+
+            [Required]
+            public int InsurerId { get; set; }
+
+            public ClaimStatus Status { get; set; }
+            public ClaimPriority Priority { get; set; }
+
+            public decimal EstimatedAmount { get; set; }
+            public decimal ApprovedAmount { get; set; }
+
+            [MaxLength(100)]
+            public string? PolicyNumber { get; set; }
+
+            [MaxLength(100)]
+            public string? PolicyHolderName { get; set; }
+
+            [MaxLength(255)]
+            public string? IncidentLocation { get; set; }
+
+            public DateTime? IncidentDate { get; set; }
+            public DateTime? DueDate { get; set; }
+
+            [MaxLength(1000)]
+            public string? Notes { get; set; }
+
+            [MaxLength(100)]
+            public string? Category { get; set; }
+        }
     }
 }
-
-
