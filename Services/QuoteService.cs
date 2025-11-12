@@ -27,6 +27,8 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Quote>> GetAllAsync();
         Task<Quote?> GetByIdAsync(int quoteId);
         Task<IReadOnlyList<Quote>> GetByProviderFirebaseIdAsync(string firebaseUid);
+        Task<User?> GetProviderByFirebaseIdAsync(string firebaseUid);
+        Task<IReadOnlyList<Quote>> GetForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int quoteId);
         Task<IReadOnlyList<QuoteDocument>> AddDocumentsAsync(
             int quoteId,
@@ -188,10 +190,16 @@ namespace InsuranceClaimsAPI.Services
                 .FirstOrDefaultAsync(q => q.QuoteId == quoteId);
         }
 
+        public async Task<User?> GetProviderByFirebaseIdAsync(string firebaseUid)
+        {
+            return await _context.Users
+                .Where(u => u.DeletedAt == null)
+                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid && u.Role == UserRole.Provider);
+        }
+
         public async Task<IReadOnlyList<Quote>> GetByProviderFirebaseIdAsync(string firebaseUid)
         {
-            var provider = await _context.Users
-                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid && u.Role == UserRole.Provider);
+            var provider = await GetProviderByFirebaseIdAsync(firebaseUid);
 
             if (provider == null)
             {
@@ -202,6 +210,17 @@ namespace InsuranceClaimsAPI.Services
                 .Include(q => q.Policy)
                 .Include(q => q.QuoteDocuments)
                 .Where(q => q.ProviderId == provider.Id)
+                .OrderByDescending(q => q.DateSubmitted)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Quote>> GetForInsurerAsync(int insurerId)
+        {
+            return await _context.Quotes
+                .Include(q => q.Policy)
+                    .ThenInclude(c => c.Provider)
+                .Include(q => q.QuoteDocuments)
+                .Where(q => q.Policy != null && q.Policy.InsurerId == insurerId)
                 .OrderByDescending(q => q.DateSubmitted)
                 .ToListAsync();
         }

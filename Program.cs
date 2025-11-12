@@ -127,6 +127,8 @@ if (app.Environment.IsDevelopment())
 // Enable CORS
 app.UseCors("AllowReactApp");
 
+app.UseHttpsRedirection();
+
 // Health check endpoint
 app.MapHealthChecks("/health");
 

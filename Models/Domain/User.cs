@@ -70,18 +70,24 @@ namespace InsuranceClaimsAPI.Models.Domain
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public DateTime? LastLoginAt { get; set; }
+        public DateTime? DeletedAt { get; set; }
 
-    // Navigation properties
-    [InverseProperty("Provider")]
-    public virtual ICollection<Claim> Claims { get; set; } = new List<Claim>();
-    
-    [InverseProperty("Provider")]
-    public virtual ICollection<Quote> Quotes { get; set; } = new List<Quote>();
-    
-    [InverseProperty("sender")]
-    public virtual ICollection<Message> Messages { get; set; } = new List<Message>();
-    
-    public virtual ICollection<ClaimDocument> ClaimDocuments { get; set; } = new List<ClaimDocument>();
-    public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+        // Navigation properties
+        [InverseProperty("Provider")]
+        public virtual ICollection<Claim> Claims { get; set; } = new List<Claim>();
+        
+        [InverseProperty("Provider")]
+        public virtual ICollection<Quote> Quotes { get; set; } = new List<Quote>();
+        
+        [InverseProperty("sender")]
+        public virtual ICollection<Message> Messages { get; set; } = new List<Message>();
+        
+        public virtual ICollection<ClaimDocument> ClaimDocuments { get; set; } = new List<ClaimDocument>();
+        public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+        public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+        [InverseProperty("Insurer")]
+        public virtual ICollection<Claim> ManagedClaims { get; set; } = new List<Claim>();
+        public virtual Insurer? InsurerProfile { get; set; }
+        public virtual ServiceProvider? ServiceProviderProfile { get; set; }
     }
 }

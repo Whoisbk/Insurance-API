@@ -83,11 +83,46 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 var claims = await _claimService.GetForProviderAsync(providerId);
+
+                var data = claims.Select(c => new
+                {
+                    claimId = c.Id,
+                    claimNumber = c.ClaimNumber,
+                    title = c.Title,
+                    description = c.Description,
+                    clientName = c.ClientFullName,
+                    clientFullName = c.ClientFullName,
+                    clientEmailAddress = c.ClientEmailAddress,
+                    clientPhoneNumber = c.ClientPhoneNumber,
+                    clientAddress = c.ClientAddress,
+                    clientCompany = c.ClientCompany,
+                    status = c.Status.ToString(),
+                    priority = c.Priority.ToString(),
+                    estimatedAmount = c.EstimatedAmount,
+                    approvedAmount = c.ApprovedAmount,
+                    policyNumber = c.PolicyNumber,
+                    policyHolderName = c.PolicyHolderName,
+                    incidentDate = c.IncidentDate,
+                    incidentLocation = c.IncidentLocation,
+                    dueDate = c.DueDate,
+                    category = c.Category,
+                    insurer = c.Insurer != null ? new
+                    {
+                        id = c.Insurer.Id,
+                        firstName = c.Insurer.FirstName,
+                        lastName = c.Insurer.LastName,
+                        companyName = c.Insurer.CompanyName,
+                        email = c.Insurer.Email
+                    } : null,
+                    createdAt = c.CreatedAt,
+                    updatedAt = c.UpdatedAt
+                }).ToList();
+
                 return Ok(new
                 {
                     success = true,
-                    data = claims,
-                    count = claims.Count
+                    data = data,
+                    count = data.Count
                 });
             }
             catch (Exception ex)
@@ -110,74 +145,38 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateClaimRequest request)
+        public async Task<IActionResult> Create([FromBody] ClaimEntity claim)
         {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    error = "Validation failed",
-                    details = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList()
-                });
-            }
-
             try
             {
-                // Map DTO to Claim entity
-                var claim = new ClaimEntity
+                if (claim == null)
                 {
-                    ClaimNumber = request.ClaimNumber,
-                    Title = request.Title,
-                    Description = request.Description,
-                    ProviderId = request.ProviderId,
-                    InsurerId = request.InsurerId,
-                    Status = request.Status,
-                    Priority = request.Priority,
-                    EstimatedAmount = request.EstimatedAmount,
-                    ApprovedAmount = request.ApprovedAmount,
-                    PolicyNumber = request.PolicyNumber,
-                    PolicyHolderName = request.PolicyHolderName,
-                    IncidentLocation = request.IncidentLocation,
-                    IncidentDate = request.IncidentDate,
-                    DueDate = request.DueDate,
-                    Notes = request.Notes,
-                    Category = request.Category
-                };
-
-                var created = await _claimService.CreateAsync(claim);
-                return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
-            }
-            catch (DbUpdateException ex)
-            {
-                if (ex.InnerException?.Message.Contains("Duplicate entry") == true || 
-                    ex.InnerException?.Message.Contains("ClaimNumber") == true ||
-                    ex.Message.Contains("Duplicate entry"))
-                {
-                    return BadRequest(new
-                    {
-                        success = false,
-                        error = "Claim number already exists. Please use a unique claim number or use the /for-provider endpoint to auto-generate one."
-                    });
+                    return BadRequest(new { error = "Request body is required" });
                 }
-                return StatusCode(500, new
+
+                if (!ModelState.IsValid)
                 {
-                    success = false,
-                    error = "Database error occurred",
-                    details = ex.Message
-                });
+                    return ValidationProblem(ModelState);
+                }
+
+                // If insurerId and providerId are provided, validate them and use the proper creation method
+                if (claim.InsurerId > 0 && claim.ProviderId > 0)
+                {
+                    var created = await _claimService.CreateForProviderAsync(claim.InsurerId, claim.ProviderId, claim);
+                    return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+                }
+
+                // Otherwise, use the basic create method (for backward compatibility)
+                var result = await _claimService.CreateAsync(claim);
+                return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "An error occurred while creating the claim",
-                    details = ex.Message
-                });
+                return StatusCode(500, new { error = "An error occurred while creating the claim.", details = ex.Message });
             }
         }
 
@@ -198,6 +197,11 @@ namespace InsuranceClaimsAPI.Controllers
                     EstimatedAmount = request.EstimatedAmount,
                     PolicyNumber = request.PolicyNumber,
                     PolicyHolderName = request.PolicyHolderName,
+                    ClientFullName = request.ClientFullName,
+                    ClientEmailAddress = request.ClientEmailAddress,
+                    ClientPhoneNumber = request.ClientPhoneNumber,
+                    ClientAddress = request.ClientAddress,
+                    ClientCompany = request.ClientCompany,
                     IncidentLocation = request.IncidentLocation,
                     IncidentDate = request.IncidentDate,
                     DueDate = request.DueDate,

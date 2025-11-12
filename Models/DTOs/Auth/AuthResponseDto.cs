@@ -26,5 +26,7 @@ namespace InsuranceClaimsAPI.Models.DTOs.Auth
         public string? ProfileImageUrl { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastLoginAt { get; set; }
+        public int? InsurerId { get; set; }
+        public int? ServiceProviderId { get; set; }
     }
 }

@@ -1,4 +1,5 @@
 using FirebaseAdmin.Auth;
+using System.Security.Cryptography;
 using InsuranceClaimsAPI.Models.Domain;
 using InsuranceClaimsAPI.Models.DTOs.Admin;
 using InsuranceClaimsAPI.Services;
@@ -12,781 +13,56 @@ namespace InsuranceClaimsAPI.Controllers
     public class AdminUserController : ControllerBase
     {
         private readonly IUserService _userService;
+        private readonly IServiceProviderService _serviceProviderService;
         private readonly ILogger<AdminUserController> _logger;
         private readonly IEmailService _emailService;
+        private readonly IAuditService _auditService;
 
-        public AdminUserController(IUserService userService, ILogger<AdminUserController> logger, IEmailService emailService)
+        public AdminUserController(IUserService userService, IServiceProviderService serviceProviderService, ILogger<AdminUserController> logger, IEmailService emailService, IAuditService auditService)
         {
             _userService = userService;
+            _serviceProviderService = serviceProviderService;
             _logger = logger;
             _emailService = emailService;
+            _auditService = auditService;
         }
 
-        /// <summary>
-        /// Creates a new insurer with Firebase authentication
-        /// Admin stays logged in because we use Firebase Admin SDK
-        /// </summary>
-        [HttpPost("insurers")]
-        // [Authorize(Roles = "Insurer")]
-        public async Task<IActionResult> CreateInsurer([FromBody] CreateInsurerRequest request)
+        // NOTE: Insurer and Provider CRUD endpoints have been moved to AdminController
+        // to keep admin operations separate from normal user endpoints
+
+        private static string GenerateSecurePassword(int length = 12)
         {
-            UserRecord? firebaseUser = null;
-            
-            try
+            if (length < 8)
             {
-                // Step 1: Create Firebase user with Admin SDK (doesn't log anyone in/out)
-                _logger.LogInformation($"Creating Firebase account for insurer: {request.Email}");
-                
-                var userRecordArgs = new UserRecordArgs
-                {
-                    Email = request.Email,
-                    Password = request.Password,
-                    EmailVerified = false,
-                    Disabled = false,
-                    DisplayName = $"{request.FirstName} {request.LastName}"
-                };
-
-                firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
-                _logger.LogInformation($"Firebase user created with UID: {firebaseUser.Uid}");
-
-                // Step 2: Set custom claims for role-based access
-                var claims = new Dictionary<string, object>
-                {
-                    { "role", "insurer" },
-                    { "roleId", 1 }
-                };
-                await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
-
-                // Step 3: Save to your database
-                var insurer = new User
-                {
-                    FirebaseUid = firebaseUser.Uid,
-                    FirstName = request.FirstName,
-                    LastName = request.LastName,
-                    Email = request.Email,
-                    CompanyName = request.CompanyName,
-                    PhoneNumber = request.PhoneNumber,
-                    Address = request.Address,
-                    City = request.City,
-                    PostalCode = request.PostalCode,
-                    Country = request.Country,
-                    Role = UserRole.Insurer,
-                    Status = UserStatus.Active,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                var createdInsurer = await _userService.CreateInsurerAsync(insurer);
-
-                // Best-effort welcome email
-                try
-                {
-                    await _emailService.SendAsync(
-                        createdInsurer.Email,
-                        "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdInsurer.FirstName},</p><p>Your insurer account has been created successfully.</p>");
-                }
-                catch (Exception emailEx)
-                {
-                    _logger.LogWarning(emailEx, "Failed to send welcome email to insurer {Email}", createdInsurer.Email);
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Insurer created successfully",
-                    data = new
-                    {
-                        id = createdInsurer.Id,
-                        firstName = createdInsurer.FirstName,
-                        lastName = createdInsurer.LastName,
-                        email = createdInsurer.Email,
-                        companyName = createdInsurer.CompanyName,
-                        phoneNumber = createdInsurer.PhoneNumber,
-                        address = createdInsurer.Address,
-                        city = createdInsurer.City,
-                        postalCode = createdInsurer.PostalCode,
-                        country = createdInsurer.Country,
-                        role = (int)createdInsurer.Role,
-                        status = (int)createdInsurer.Status,
-                        firebaseUid = createdInsurer.FirebaseUid,
-                        createdAt = createdInsurer.CreatedAt
-                    }
-                });
+                length = 8;
             }
-            catch (FirebaseAuthException ex)
+
+            const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const string lower = "abcdefghijklmnopqrstuvwxyz";
+            const string digits = "0123456789";
+            const string special = "@$!%*?&";
+
+            var allChars = upper + lower + digits + special;
+            var passwordChars = new char[length];
+            var position = 0;
+
+            passwordChars[position++] = upper[RandomNumberGenerator.GetInt32(upper.Length)];
+            passwordChars[position++] = lower[RandomNumberGenerator.GetInt32(lower.Length)];
+            passwordChars[position++] = digits[RandomNumberGenerator.GetInt32(digits.Length)];
+            passwordChars[position++] = special[RandomNumberGenerator.GetInt32(special.Length)];
+
+            while (position < length)
             {
-                _logger.LogError($"Firebase error: {ex.Message}");
-                
-                // Handle specific Firebase errors
-                var errorMessage = ex.AuthErrorCode switch
-                {
-                    AuthErrorCode.EmailAlreadyExists => "An account with this email already exists",
-                    _ => $"Firebase authentication error: {ex.Message}"
-                };
-
-                return BadRequest(new { success = false, error = errorMessage });
+                passwordChars[position++] = allChars[RandomNumberGenerator.GetInt32(allChars.Length)];
             }
-            catch (Exception ex)
+
+            for (var i = passwordChars.Length - 1; i > 0; i--)
             {
-                _logger.LogError($"Error creating insurer: {ex.Message}");
-
-                // If database save failed but Firebase user was created, clean up
-                if (firebaseUser != null)
-                {
-                    try
-                    {
-                        _logger.LogWarning($"Rolling back Firebase user creation: {firebaseUser.Uid}");
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(firebaseUser.Uid);
-                        _logger.LogInformation("Firebase user cleanup successful");
-                    }
-                    catch (Exception cleanupEx)
-                    {
-                        _logger.LogError($"Failed to cleanup Firebase user: {cleanupEx.Message}");
-                        _logger.LogError($"MANUAL CLEANUP REQUIRED - Firebase UID: {firebaseUser.Uid}");
-                    }
-                }
-
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to create insurer",
-                    details = ex.Message
-                });
+                var swapIndex = RandomNumberGenerator.GetInt32(i + 1);
+                (passwordChars[i], passwordChars[swapIndex]) = (passwordChars[swapIndex], passwordChars[i]);
             }
-        }
 
-        /// <summary>
-        /// Creates a new provider with Firebase authentication
-        /// Admin stays logged in because we use Firebase Admin SDK
-        /// </summary>
-        [HttpPost("providers")]
-        public async Task<IActionResult> CreateProvider([FromBody] CreateProviderRequest request)
-        {
-            UserRecord? firebaseUser = null;
-            
-            try
-            {
-                // Step 1: Create Firebase user with Admin SDK (doesn't log anyone in/out)
-                _logger.LogInformation($"Creating Firebase account for provider: {request.Email}");
-                
-                var userRecordArgs = new UserRecordArgs
-                {
-                    Email = request.Email,
-                    Password = request.Password,
-                    EmailVerified = false,
-                    Disabled = false,
-                    DisplayName = $"{request.FirstName} {request.LastName}"
-                };
-
-                firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
-                _logger.LogInformation($"Firebase user created with UID: {firebaseUser.Uid}");
-
-                // Step 2: Set custom claims for role-based access
-                var claims = new Dictionary<string, object>
-                {
-                    { "role", "provider" },
-                    { "roleId", 2 }
-                };
-                await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
-
-                // Step 3: Save to your database
-                var provider = new User
-                {
-                    FirebaseUid = firebaseUser.Uid,
-                    FirstName = request.FirstName,
-                    LastName = request.LastName,
-                    Email = request.Email,
-                    CompanyName = request.CompanyName,
-                    PhoneNumber = request.PhoneNumber,
-                    Address = request.Address,
-                    City = request.City,
-                    PostalCode = request.PostalCode,
-                    Country = request.Country,
-                    Role = UserRole.Provider,
-                    Status = UserStatus.Active,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                var createdProvider = await _userService.CreateProviderWithServiceProviderAsync(provider, request);
-
-                // Best-effort welcome email
-                try
-                {
-                    await _emailService.SendAsync(
-                        createdProvider.Email,
-                        "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdProvider.FirstName},</p><p>Your provider account has been created successfully.</p>");
-                }
-                catch (Exception emailEx)
-                {
-                    _logger.LogWarning(emailEx, "Failed to send welcome email to provider {Email}", createdProvider.Email);
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Provider created successfully",
-                    data = new
-                    {
-                        id = createdProvider.Id,
-                        firstName = createdProvider.FirstName,
-                        lastName = createdProvider.LastName,
-                        email = createdProvider.Email,
-                        companyName = createdProvider.CompanyName,
-                        phoneNumber = createdProvider.PhoneNumber,
-                        address = createdProvider.Address,
-                        city = createdProvider.City,
-                        postalCode = createdProvider.PostalCode,
-                        country = createdProvider.Country,
-                        role = (int)createdProvider.Role,
-                        status = (int)createdProvider.Status,
-                        firebaseUid = createdProvider.FirebaseUid,
-                        createdAt = createdProvider.CreatedAt
-                    }
-                });
-            }
-            catch (FirebaseAuthException ex)
-            {
-                _logger.LogError($"Firebase error: {ex.Message}");
-                
-                // Handle specific Firebase errors
-                var errorMessage = ex.AuthErrorCode switch
-                {
-                    AuthErrorCode.EmailAlreadyExists => "An account with this email already exists",
-                    _ => $"Firebase authentication error: {ex.Message}"
-                };
-
-                return BadRequest(new { success = false, error = errorMessage });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error creating provider: {ex.Message}");
-
-                // If database save failed but Firebase user was created, clean up
-                if (firebaseUser != null)
-                {
-                    try
-                    {
-                        _logger.LogWarning($"Rolling back Firebase user creation: {firebaseUser.Uid}");
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(firebaseUser.Uid);
-                        _logger.LogInformation("Firebase user cleanup successful");
-                    }
-                    catch (Exception cleanupEx)
-                    {
-                        _logger.LogError($"Failed to cleanup Firebase user: {cleanupEx.Message}");
-                        _logger.LogError($"MANUAL CLEANUP REQUIRED - Firebase UID: {firebaseUser.Uid}");
-                    }
-                }
-
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to create provider",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Updates insurer information (no password change)
-        /// </summary>
-        [HttpPut("insurers/{id}")]
-        public async Task<IActionResult> UpdateInsurer(int id, [FromBody] UpdateInsurerRequest request)
-        {
-            try
-            {
-                var insurer = await _userService.GetUserByIdAsync(id);
-                if (insurer == null || insurer.Role != UserRole.Insurer)
-                {
-                    return NotFound(new { success = false, error = "Insurer not found" });
-                }
-
-                // Update database
-                insurer.FirstName = request.FirstName;
-                insurer.LastName = request.LastName;
-                insurer.Email = request.Email;
-                insurer.CompanyName = request.CompanyName;
-                insurer.PhoneNumber = request.PhoneNumber;
-                insurer.Address = request.Address;
-                insurer.City = request.City;
-                insurer.PostalCode = request.PostalCode;
-                insurer.Country = request.Country;
-
-                await _userService.UpdateUserAsync(insurer);
-
-                // Update Firebase email if changed (with timeout, best effort)
-                if (!string.IsNullOrEmpty(insurer.FirebaseUid))
-                {
-                    try
-                    {
-                        var updateArgs = new UserRecordArgs
-                        {
-                            Uid = insurer.FirebaseUid,
-                            Email = request.Email,
-                            DisplayName = $"{request.FirstName} {request.LastName}"
-                        };
-                        
-                        // Add 5-second timeout for Firebase update
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs).WaitAsync(cts.Token);
-                        _logger.LogInformation("Firebase insurer updated successfully: {FirebaseUid}", insurer.FirebaseUid);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        _logger.LogWarning("Firebase update timed out for insurer {FirebaseUid}, but database update succeeded", insurer.FirebaseUid);
-                    }
-                    catch (FirebaseAuthException firebaseEx)
-                    {
-                        _logger.LogWarning(firebaseEx, "Failed to update Firebase insurer {FirebaseUid}, but database update succeeded", insurer.FirebaseUid);
-                    }
-                    catch (Exception firebaseEx)
-                    {
-                        _logger.LogWarning(firebaseEx, "Unexpected error updating Firebase insurer {FirebaseUid}", insurer.FirebaseUid);
-                    }
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Insurer updated successfully",
-                    data = insurer
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error updating insurer: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to update insurer",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Updates provider information (no password change)
-        /// </summary>
-        [HttpPut("providers/{id}")]
-        public async Task<IActionResult> UpdateProvider(int id, [FromBody] UpdateProviderRequest request)
-        {
-            try
-            {
-                var provider = await _userService.GetUserByIdAsync(id);
-                if (provider == null || provider.Role != UserRole.Provider)
-                {
-                    return NotFound(new { success = false, error = "Provider not found" });
-                }
-
-                // Update database
-                provider.FirstName = request.FirstName;
-                provider.LastName = request.LastName;
-                provider.Email = request.Email;
-                provider.CompanyName = request.CompanyName;
-                provider.PhoneNumber = request.PhoneNumber;
-                provider.Address = request.Address;
-                provider.City = request.City;
-                provider.PostalCode = request.PostalCode;
-                provider.Country = request.Country;
-
-                await _userService.UpdateUserAsync(provider);
-
-                // Update Firebase email if changed (with timeout, best effort)
-                if (!string.IsNullOrEmpty(provider.FirebaseUid))
-                {
-                    try
-                    {
-                        var updateArgs = new UserRecordArgs
-                        {
-                            Uid = provider.FirebaseUid,
-                            Email = request.Email,
-                            DisplayName = $"{request.FirstName} {request.LastName}"
-                        };
-                        
-                        // Add 5-second timeout for Firebase update
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs).WaitAsync(cts.Token);
-                        _logger.LogInformation("Firebase provider updated successfully: {FirebaseUid}", provider.FirebaseUid);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        _logger.LogWarning("Firebase update timed out for provider {FirebaseUid}, but database update succeeded", provider.FirebaseUid);
-                    }
-                    catch (FirebaseAuthException firebaseEx)
-                    {
-                        _logger.LogWarning(firebaseEx, "Failed to update Firebase provider {FirebaseUid}, but database update succeeded", provider.FirebaseUid);
-                    }
-                    catch (Exception firebaseEx)
-                    {
-                        _logger.LogWarning(firebaseEx, "Unexpected error updating Firebase provider {FirebaseUid}", provider.FirebaseUid);
-                    }
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Provider updated successfully",
-                    data = provider
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error updating provider: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to update provider",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Deletes insurer from both database and Firebase
-        /// </summary>
-        [HttpDelete("insurers/{id}")]
-        // [Authorize(Roles = "Insurer")]
-        public async Task<IActionResult> DeleteInsurer(int id)
-        {
-            try
-            {
-                var insurer = await _userService.GetUserByIdAsync(id);
-                if (insurer == null || insurer.Role != UserRole.Insurer)
-                {
-                    return NotFound(new { success = false, error = "Insurer not found" });
-                }
-
-                // Delete from database first
-                await _userService.DeleteUserAsync(id);
-
-                // Delete from Firebase if UID exists
-                if (!string.IsNullOrEmpty(insurer.FirebaseUid))
-                {
-                    try
-                    {
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(insurer.FirebaseUid);
-                        _logger.LogInformation($"Firebase user deleted: {insurer.FirebaseUid}");
-                    }
-                    catch (FirebaseAuthException ex)
-                    {
-                        _logger.LogWarning($"Firebase deletion failed (user may already be deleted): {ex.Message}");
-                    }
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Insurer deleted successfully"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error deleting insurer: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to delete insurer",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Deletes provider from both database and Firebase
-        /// </summary>
-        [HttpDelete("providers/{id}")]
-        public async Task<IActionResult> DeleteProvider(int id)
-        {
-            try
-            {
-                var provider = await _userService.GetUserByIdAsync(id);
-                if (provider == null || provider.Role != UserRole.Provider)
-                {
-                    return NotFound(new { success = false, error = "Provider not found" });
-                }
-
-                // Delete from database first
-                await _userService.DeleteUserAsync(id);
-
-                // Delete from Firebase if UID exists
-                if (!string.IsNullOrEmpty(provider.FirebaseUid))
-                {
-                    try
-                    {
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(provider.FirebaseUid);
-                        _logger.LogInformation($"Firebase user deleted: {provider.FirebaseUid}");
-                    }
-                    catch (FirebaseAuthException ex)
-                    {
-                        _logger.LogWarning($"Firebase deletion failed (user may already be deleted): {ex.Message}");
-                    }
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Provider deleted successfully"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error deleting provider: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to delete provider",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Gets all insurers
-        /// </summary>
-        [HttpGet("insurers")]
-        // [Authorize(Roles = "Insurer")]
-        public async Task<IActionResult> GetInsurers()
-        {
-            try
-            {
-                var insurers = await _userService.GetUsersByRoleAsync(UserRole.Insurer);
-                return Ok(new
-                {
-                    success = true,
-                    data = insurers.Select(i => new
-                    {
-                        id = i.Id,
-                        firstName = i.FirstName,
-                        lastName = i.LastName,
-                        email = i.Email,
-                        companyName = i.CompanyName,
-                        phoneNumber = i.PhoneNumber,
-                        address = i.Address,
-                        city = i.City,
-                        postalCode = i.PostalCode,
-                        country = i.Country,
-                        role = (int)i.Role,
-                        status = (int)i.Status,
-                        firebaseUid = i.FirebaseUid,
-                        createdAt = i.CreatedAt,
-                        updatedAt = i.UpdatedAt
-                    })
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error getting insurers: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to retrieve insurers",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Gets all providers
-        /// </summary>
-        [HttpGet("providers")]
-        public async Task<IActionResult> GetProviders()
-        {
-            try
-            {
-                var providers = await _userService.GetUsersByRoleAsync(UserRole.Provider);
-                return Ok(new
-                {
-                    success = true,
-                    data = providers.Select(p => new
-                    {
-                        id = p.Id,
-                        firstName = p.FirstName,
-                        lastName = p.LastName,
-                        email = p.Email,
-                        companyName = p.CompanyName,
-                        phoneNumber = p.PhoneNumber,
-                        address = p.Address,
-                        city = p.City,
-                        postalCode = p.PostalCode,
-                        country = p.Country,
-                        role = (int)p.Role,
-                        status = (int)p.Status,
-                        firebaseUid = p.FirebaseUid,
-                        createdAt = p.CreatedAt,
-                        updatedAt = p.UpdatedAt
-                    })
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error getting providers: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to retrieve providers",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Check if email exists (no authentication required for frontend compatibility)
-        /// </summary>
-        [HttpGet("check-email")]
-        public async Task<IActionResult> CheckEmail([FromQuery] string email)
-        {
-            try
-            {
-                var exists = await _userService.EmailExistsAsync(email);
-                return Ok(new
-                {
-                    success = true,
-                    email = email,
-                    exists = exists
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error checking email: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to check email",
-                    details = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Creates a new admin with Firebase authentication (actually creates Insurer - Role 1)
-        /// </summary>
-        [HttpPost("admins")]
-        // [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> CreateAdmin([FromBody] CreateAdminRequest request)
-        {
-            UserRecord? firebaseUser = null;
-            
-            try
-            {
-                // Step 1: Create Firebase user with Admin SDK
-                _logger.LogInformation($"Creating Firebase account for insurer: {request.Email}");
-                
-                var userRecordArgs = new UserRecordArgs
-                {
-                    Email = request.Email,
-                    Password = request.Password,
-                    EmailVerified = false,
-                    Disabled = false,
-                    DisplayName = $"{request.FirstName} {request.LastName}"
-                };
-
-                firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
-                _logger.LogInformation($"Firebase user created with UID: {firebaseUser.Uid}");
-
-                // Step 2: Set custom claims for role-based access (Insurer role)
-                var claims = new Dictionary<string, object>
-                {
-                    { "role", "insurer" },
-                    { "roleId", 1 }
-                };
-                await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(firebaseUser.Uid, claims);
-
-                // Step 3: Save to your database as Insurer (Role = 1)
-                var admin = new User
-                {
-                    FirebaseUid = firebaseUser.Uid,
-                    FirstName = request.FirstName,
-                    LastName = request.LastName,
-                    Email = request.Email,
-                    PhoneNumber = request.PhoneNumber,
-                    Address = request.Address,
-                    City = request.City,
-                    PostalCode = request.PostalCode,
-                    Country = request.Country,
-                    Role = UserRole.Insurer,
-                    Status = UserStatus.Active,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                var createdAdmin = await _userService.CreateInsurerAsync(admin);
-
-                // Best-effort welcome email
-                try
-                {
-                    await _emailService.SendAsync(
-                        createdAdmin.Email,
-                        "Welcome to Insurance Claims Portal",
-                        $"<p>Hi {createdAdmin.FirstName},</p><p>Your admin account has been created successfully.</p>");
-                }
-                catch (Exception emailEx)
-                {
-                    _logger.LogWarning(emailEx, "Failed to send welcome email to admin {Email}", createdAdmin.Email);
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Insurer created successfully",
-                    data = new
-                    {
-                        id = createdAdmin.Id,
-                        firstName = createdAdmin.FirstName,
-                        lastName = createdAdmin.LastName,
-                        email = createdAdmin.Email,
-                        phoneNumber = createdAdmin.PhoneNumber,
-                        address = createdAdmin.Address,
-                        city = createdAdmin.City,
-                        postalCode = createdAdmin.PostalCode,
-                        country = createdAdmin.Country,
-                        role = (int)createdAdmin.Role,
-                        status = (int)createdAdmin.Status,
-                        firebaseUid = createdAdmin.FirebaseUid,
-                        createdAt = createdAdmin.CreatedAt
-                    }
-                });
-            }
-            catch (FirebaseAuthException ex)
-            {
-                _logger.LogError($"Firebase error: {ex.Message}");
-                
-                var errorMessage = ex.AuthErrorCode switch
-                {
-                    AuthErrorCode.EmailAlreadyExists => "An account with this email already exists",
-                    _ => $"Firebase authentication error: {ex.Message}"
-                };
-
-                return BadRequest(new { success = false, error = errorMessage });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error creating insurer: {ex.Message}");
-
-                // If database save failed but Firebase user was created, clean up
-                if (firebaseUser != null)
-                {
-                    try
-                    {
-                        _logger.LogWarning($"Rolling back Firebase user creation: {firebaseUser.Uid}");
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(firebaseUser.Uid);
-                        _logger.LogInformation("Firebase user cleanup successful");
-                    }
-                    catch (Exception cleanupEx)
-                    {
-                        _logger.LogError($"Failed to cleanup Firebase user: {cleanupEx.Message}");
-                        _logger.LogError($"MANUAL CLEANUP REQUIRED - Firebase UID: {firebaseUser.Uid}");
-                    }
-                }
-
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to create insurer",
-                    details = ex.Message
-                });
-            }
+            return new string(passwordChars);
         }
 
         /// <summary>
@@ -794,6 +70,7 @@ namespace InsuranceClaimsAPI.Controllers
         /// </summary>
         [HttpPut("admins/{id}")]
         [HttpPut("edit/{id}")]
+        [HttpPut("/api/admins/edit/{id}")]
         // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateAdmin(int id, [FromBody] UpdateAdminRequest request)
         {
@@ -804,6 +81,9 @@ namespace InsuranceClaimsAPI.Controllers
                 {
                     return NotFound(new { success = false, error = "Admin not found" });
                 }
+
+                // Store old values for audit log
+                var oldValues = $"FirstName: {admin.FirstName}, LastName: {admin.LastName}, Email: {admin.Email}";
 
                 // Update database
                 admin.FirstName = request.FirstName;
@@ -817,6 +97,21 @@ namespace InsuranceClaimsAPI.Controllers
                 admin.UpdatedAt = DateTime.UtcNow;
 
                 await _userService.UpdateUserAsync(admin);
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Update,
+                    EntityType = EntityType.User,
+                    EntityId = admin.Id.ToString(),
+                    ActionDescription = $"Admin updated: {admin.FirstName} {admin.LastName} (ID: {admin.Id})",
+                    OldValues = oldValues,
+                    NewValues = $"FirstName: {admin.FirstName}, LastName: {admin.LastName}, Email: {admin.Email}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
 
                 // Update Firebase email if changed (with timeout, best effort)
                 if (!string.IsNullOrEmpty(admin.FirebaseUid))
@@ -883,52 +178,9 @@ namespace InsuranceClaimsAPI.Controllers
             }
         }
 
-        /// <summary>
-        /// Gets all admins (Role = 1, Insurers)
-        /// </summary>
-        [HttpGet("admins")]
-        // [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> GetAdmins()
-        {
-            try
-            {
-                var admins = await _userService.GetUsersByRoleAsync(UserRole.Insurer);
-                return Ok(new
-                {
-                    success = true,
-                    data = admins.Select(a => new
-                    {
-                        id = a.Id,
-                        firstName = a.FirstName,
-                        lastName = a.LastName,
-                        email = a.Email,
-                        phoneNumber = a.PhoneNumber,
-                        address = a.Address,
-                        city = a.City,
-                        postalCode = a.PostalCode,
-                        country = a.Country,
-                        role = (int)a.Role,
-                        status = (int)a.Status,
-                        firebaseUid = a.FirebaseUid,
-                        createdAt = a.CreatedAt,
-                        updatedAt = a.UpdatedAt
-                    })
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error getting admins: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Failed to retrieve admins",
-                    details = ex.Message
-                });
-            }
-        }
 
         /// <summary>
-        /// Deletes admin from both database and Firebase
+        /// Soft deletes admin (sets DeletedAt) and disables user in Firebase
         /// </summary>
         [HttpDelete("admins/{id}")]
         public async Task<IActionResult> DeleteAdmin(int id)
@@ -941,22 +193,48 @@ namespace InsuranceClaimsAPI.Controllers
                     return NotFound(new { success = false, error = "Admin not found" });
                 }
 
-                // Delete from database first
+                // Store user info for audit log before deletion
+                var deletedUserInfo = $"FirstName: {admin.FirstName}, LastName: {admin.LastName}, Email: {admin.Email}";
+
+                // Soft delete from database
                 await _userService.DeleteUserAsync(id);
 
-                // Delete from Firebase if UID exists
+                // Disable user in Firebase if UID exists
                 if (!string.IsNullOrEmpty(admin.FirebaseUid))
                 {
                     try
                     {
-                        await FirebaseAuth.DefaultInstance.DeleteUserAsync(admin.FirebaseUid);
-                        _logger.LogInformation($"Firebase user deleted: {admin.FirebaseUid}");
+                        var updateArgs = new UserRecordArgs
+                        {
+                            Uid = admin.FirebaseUid,
+                            Disabled = true
+                        };
+                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs);
+                        _logger.LogInformation($"Firebase user disabled: {admin.FirebaseUid}");
                     }
                     catch (FirebaseAuthException ex)
                     {
-                        _logger.LogWarning($"Firebase deletion failed (user may already be deleted): {ex.Message}");
+                        _logger.LogWarning($"Firebase disable failed (user may already be deleted): {ex.Message}");
+                    }
+                    catch (Exception firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Unexpected error disabling Firebase user {FirebaseUid}", admin.FirebaseUid);
                     }
                 }
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Delete,
+                    EntityType = EntityType.User,
+                    EntityId = id.ToString(),
+                    ActionDescription = $"Admin deleted: {admin.FirstName} {admin.LastName} (ID: {id})",
+                    OldValues = deletedUserInfo,
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
 
                 return Ok(new
                 {
@@ -974,6 +252,29 @@ namespace InsuranceClaimsAPI.Controllers
                     details = ex.Message
                 });
             }
+        }
+
+        /// <summary>
+        /// Gets the current user ID from request headers or claims
+        /// </summary>
+        private int? GetCurrentUserId()
+        {
+            // Try to get user ID from header (X-User-Id)
+            var userIdStr = Request.Headers["X-User-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(userIdStr) && int.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+
+            // Try to get user ID from claims (if using authentication)
+            var userIdClaim = User?.FindFirst("userId")?.Value ?? User?.FindFirst("sub")?.Value;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userIdFromClaim))
+            {
+                return userIdFromClaim;
+            }
+
+            // If no user ID found, return null (system action)
+            return null;
         }
     }
 }
