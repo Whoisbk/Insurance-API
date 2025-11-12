@@ -8,7 +8,13 @@ namespace InsuranceClaimsAPI.Configuration
     {
         public MappingProfile()
         {
-            CreateMap<User, UserDto>();
+            CreateMap<User, UserDto>()
+                .ForMember(dest => dest.InsurerId, opt => opt.MapFrom(src =>
+                    src.Role == UserRole.Provider
+                        ? src.ServiceProviderProfile != null ? src.ServiceProviderProfile.InsurerId : null
+                        : src.InsurerProfile != null ? src.InsurerProfile.InsurerId : null))
+                .ForMember(dest => dest.ServiceProviderId, opt => opt.MapFrom(src =>
+                    src.ServiceProviderProfile != null ? src.ServiceProviderProfile.ProviderId : (int?)null));
             CreateMap<RegisterRequestDto, User>()
                 .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
                 .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))

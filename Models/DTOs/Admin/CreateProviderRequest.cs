@@ -40,5 +40,19 @@ namespace InsuranceClaimsAPI.Models.DTOs.Admin
 
         [MaxLength(100)]
         public string? ContactPerson { get; set; }
+
+        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "InsurerId must be a positive integer.")]
+        public int InsurerId { get; set; }
+
+        /// <summary>
+        /// Optional role field (will be ignored, always set to Provider)
+        /// </summary>
+        public int? Role { get; set; }
+
+        /// <summary>
+        /// Terms acceptance flag
+        /// </summary>
+        public bool? AcceptTerms { get; set; }
     }
 }

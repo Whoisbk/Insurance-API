@@ -19,6 +19,7 @@ namespace InsuranceClaimsAPI.Services
             var serviceProvider = new Models.Domain.ServiceProvider
             {
                 UserId = userId,
+                InsurerId = request.InsurerId,
                 Name = $"{request.FirstName} {request.LastName}",
                 Specialization = "General Services", // Default specialization, can be updated later
                 PhoneNumber = request.PhoneNumber ?? "",
@@ -36,6 +37,8 @@ namespace InsuranceClaimsAPI.Services
         {
             return await _context.ServiceProviders
                 .Include(sp => sp.User)
+                .Include(sp => sp.Insurer)
+                    .ThenInclude(i => i.User)
                 .FirstOrDefaultAsync(sp => sp.UserId == userId);
         }
 
@@ -43,6 +46,7 @@ namespace InsuranceClaimsAPI.Services
         {
             return await _context.ServiceProviders
                 .Include(sp => sp.User)
+                .Include(sp => sp.Insurer)
                 .FirstOrDefaultAsync(sp => sp.ProviderId == id);
         }
 
@@ -68,6 +72,17 @@ namespace InsuranceClaimsAPI.Services
         {
             return await _context.ServiceProviders
                 .Include(sp => sp.User)
+                .Include(sp => sp.Insurer)
+                .OrderBy(sp => sp.Name)
+                .ToListAsync();
+        }
+
+        public async Task<List<Models.Domain.ServiceProvider>> GetServiceProvidersByInsurerAsync(int insurerId)
+        {
+            return await _context.ServiceProviders
+                .Include(sp => sp.User)
+                .Include(sp => sp.Insurer)
+                .Where(sp => sp.InsurerId == insurerId)
                 .OrderBy(sp => sp.Name)
                 .ToListAsync();
         }

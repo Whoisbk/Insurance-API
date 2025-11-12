@@ -13,7 +13,6 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Claim>> GetForUserAsync(int userId);
         Task<IReadOnlyList<Claim>> GetForProviderAsync(int providerId);
         Task<IReadOnlyList<Claim>> GetForInsurerAsync(int insurerId);
-        Task<IReadOnlyList<User>> GetProvidersForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int claimId);
         Task UpdateStatusAsync(int claimId, ClaimStatus status);
     }
@@ -33,8 +32,26 @@ namespace InsuranceClaimsAPI.Services
 
         public async Task<Claim> CreateAsync(Claim claim)
         {
+            // Auto-generate claim number if not provided
+            if (string.IsNullOrWhiteSpace(claim.ClaimNumber))
+            {
+                claim.ClaimNumber = await GenerateUniqueClaimNumberAsync();
+            }
+
+            // Set default status if not provided
+            if (claim.Status == 0)
+            {
+                claim.Status = ClaimStatus.Draft;
+            }
+
             claim.CreatedAt = DateTime.UtcNow;
             claim.UpdatedAt = DateTime.UtcNow;
+            
+            if (claim.ClaimSubmittedDate == null && claim.Status == ClaimStatus.Submitted)
+            {
+                claim.ClaimSubmittedDate = DateTime.UtcNow;
+            }
+
             _context.Claims.Add(claim);
             await _context.SaveChangesAsync();
             await _auditService.LogAsync(new AuditLog
@@ -194,20 +211,6 @@ namespace InsuranceClaimsAPI.Services
                 .Include(c => c.Insurer)
                 .Where(c => c.InsurerId == insurerId)
                 .OrderByDescending(c => c.UpdatedAt)
-                .ToListAsync();
-        }
-
-        public async Task<IReadOnlyList<User>> GetProvidersForInsurerAsync(int insurerId)
-        {
-            var providerIdsQuery = _context.Claims
-                .Where(c => c.InsurerId == insurerId)
-                .Select(c => c.ProviderId)
-                .Distinct();
-
-            return await _context.Users
-                .Where(u => providerIdsQuery.Contains(u.Id))
-                .OrderBy(u => u.CompanyName ?? u.LastName)
-                .ThenBy(u => u.FirstName)
                 .ToListAsync();
         }
 

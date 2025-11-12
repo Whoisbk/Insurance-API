@@ -44,6 +44,7 @@ namespace InsuranceClaimsAPI.Controllers
             {
                 // Validate that the provider exists
                 var provider = await _context.Users
+                    .Where(u => u.DeletedAt == null)
                     .FirstOrDefaultAsync(u => u.Id == providerId && u.Role == UserRole.Provider);
 
                 if (provider == null)
@@ -91,6 +92,7 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 var insurer = await _context.Users
+                    .Where(u => u.DeletedAt == null)
                     .FirstOrDefaultAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
 
                 if (insurer == null)

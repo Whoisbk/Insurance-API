@@ -11,5 +11,6 @@ namespace InsuranceClaimsAPI.Services
         Task<Models.Domain.ServiceProvider> UpdateServiceProviderAsync(Models.Domain.ServiceProvider serviceProvider);
         Task<bool> DeleteServiceProviderAsync(int id);
         Task<List<Models.Domain.ServiceProvider>> GetAllServiceProvidersAsync();
+        Task<List<Models.Domain.ServiceProvider>> GetServiceProvidersByInsurerAsync(int insurerId);
     }
 }

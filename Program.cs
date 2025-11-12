@@ -108,10 +108,10 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-app.UseHttpsRedirection();
-
-// Enable CORS
+// Enable CORS - must be early in pipeline to handle preflight OPTIONS requests
 app.UseCors("AllowReactApp");
+
+app.UseHttpsRedirection();
 
 // Health check endpoint
 app.MapHealthChecks("/health");

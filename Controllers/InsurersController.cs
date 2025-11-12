@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using InsuranceClaimsAPI.Data;
 using InsuranceClaimsAPI.Models.Domain;
+using InsuranceClaimsAPI.Models.DTOs.Admin;
 using InsuranceClaimsAPI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,17 +15,26 @@ namespace InsuranceClaimsAPI.Controllers
     {
         private readonly IQuoteService _quoteService;
         private readonly IClaimService _claimService;
+        private readonly IServiceProviderService _serviceProviderService;
+        private readonly IUserService _userService;
+        private readonly IAuditService _auditService;
         private readonly InsuranceClaimsContext _context;
         private readonly ILogger<InsurersController> _logger;
 
         public InsurersController(
             IQuoteService quoteService,
             IClaimService claimService,
+            IServiceProviderService serviceProviderService,
+            IUserService userService,
+            IAuditService auditService,
             InsuranceClaimsContext context,
             ILogger<InsurersController> logger)
         {
             _quoteService = quoteService;
             _claimService = claimService;
+            _serviceProviderService = serviceProviderService;
+            _userService = userService;
+            _auditService = auditService;
             _context = context;
             _logger = logger;
         }
@@ -38,6 +48,7 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 var insurerExists = await _context.Users
+                    .Where(u => u.DeletedAt == null)
                     .AnyAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
 
                 if (!insurerExists)
@@ -109,6 +120,7 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 var insurerExists = await _context.Users
+                    .Where(u => u.DeletedAt == null)
                     .AnyAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
 
                 if (!insurerExists)
@@ -174,6 +186,7 @@ namespace InsuranceClaimsAPI.Controllers
             try
             {
                 var insurerExists = await _context.Users
+                    .Where(u => u.DeletedAt == null)
                     .AnyAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
 
                 if (!insurerExists)
@@ -224,34 +237,114 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
-        /// Gets all providers associated with the specified insurer via claims.
+        /// Updates a provider User by ID (for insurer editing provider users)
+        /// This route must come before the {insurerId:int}/providers route to avoid routing conflicts
+        /// </summary>
+        [HttpPut("providers/edit/{id:int}")]
+        public async Task<IActionResult> UpdateProvider(int id, [FromBody] UpdateProviderRequest request)
+        {
+            try
+            {
+                var provider = await _userService.GetUserByIdAsync(id);
+                if (provider == null || provider.Role != UserRole.Provider)
+                {
+                    return NotFound(new { success = false, error = "Provider not found" });
+                }
+
+                // Store old values for audit log
+                var oldValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}";
+
+                // Update database
+                provider.FirstName = request.FirstName;
+                provider.LastName = request.LastName;
+                provider.Email = request.Email;
+                provider.CompanyName = request.CompanyName;
+                provider.PhoneNumber = request.PhoneNumber;
+                provider.Address = request.Address;
+                provider.City = request.City;
+                provider.PostalCode = request.PostalCode;
+                provider.Country = request.Country;
+
+                await _userService.UpdateUserAsync(provider);
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Update,
+                    EntityType = EntityType.User,
+                    EntityId = provider.Id.ToString(),
+                    ActionDescription = $"Provider updated by insurer: {provider.FirstName} {provider.LastName} (ID: {provider.Id})",
+                    OldValues = oldValues,
+                    NewValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Provider updated successfully",
+                    data = provider
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating provider {ProviderId} by insurer", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to update provider",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Gets all service providers associated with the specified insurer.
         /// </summary>
         [HttpGet("{insurerId:int}/providers")]
         public async Task<IActionResult> GetProvidersForInsurer(int insurerId)
         {
             try
             {
-                var insurerExists = await _context.Users
-                    .AnyAsync(u => u.Id == insurerId && u.Role == UserRole.Insurer);
+                // Check if the InsurerId exists in the Insurers table
+                var insurerExists = await _context.Insurers
+                    .AnyAsync(i => i.InsurerId == insurerId);
 
                 if (!insurerExists)
                 {
                     return NotFound(new { success = false, error = "Insurer not found" });
                 }
 
-                var providers = await _claimService.GetProvidersForInsurerAsync(insurerId);
+                // Get service providers for this insurer
+                var serviceProviders = await _serviceProviderService.GetServiceProvidersByInsurerAsync(insurerId);
 
-                var data = providers.Select(p => new
+                var data = serviceProviders.Select(sp => new
                 {
-                    id = p.Id,
-                    firstName = p.FirstName,
-                    lastName = p.LastName,
-                    companyName = p.CompanyName,
-                    email = p.Email,
-                    phoneNumber = p.PhoneNumber,
-                    city = p.City,
-                    country = p.Country,
-                    status = p.Status.ToString()
+                    providerId = sp.ProviderId,
+                    userId = sp.UserId,
+                    insurerId = sp.InsurerId,
+                    name = sp.Name,
+                    specialization = sp.Specialization,
+                    phoneNumber = sp.PhoneNumber,
+                    email = sp.Email,
+                    address = sp.Address,
+                    endDate = sp.EndDate,
+                    user = sp.User != null ? new
+                    {
+                        id = sp.User.Id,
+                        firstName = sp.User.FirstName,
+                        lastName = sp.User.LastName,
+                        email = sp.User.Email,
+                        companyName = sp.User.CompanyName,
+                        phoneNumber = sp.User.PhoneNumber,
+                        city = sp.User.City,
+                        country = sp.User.Country,
+                        status = sp.User.Status.ToString(),
+                        role = sp.User.Role.ToString()
+                    } : null
                 }).ToList();
 
                 return Ok(new
@@ -271,6 +364,94 @@ namespace InsuranceClaimsAPI.Controllers
                     details = ex.Message
                 });
             }
+        }
+
+        /// <summary>
+        /// Updates insurer information
+        /// </summary>
+        [HttpPut("edit/{id}")]
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateInsurer(int id, [FromBody] UpdateInsurerRequest request)
+        {
+            try
+            {
+                var insurer = await _userService.GetUserByIdAsync(id);
+                if (insurer == null || insurer.Role != UserRole.Insurer)
+                {
+                    return NotFound(new { success = false, error = "Insurer not found" });
+                }
+
+                // Store old values for audit log
+                var oldValues = $"FirstName: {insurer.FirstName}, LastName: {insurer.LastName}, Email: {insurer.Email}, CompanyName: {insurer.CompanyName}";
+
+                // Update database
+                insurer.FirstName = request.FirstName;
+                insurer.LastName = request.LastName;
+                insurer.Email = request.Email;
+                insurer.CompanyName = request.CompanyName;
+                insurer.PhoneNumber = request.PhoneNumber;
+                insurer.Address = request.Address;
+                insurer.City = request.City;
+                insurer.PostalCode = request.PostalCode;
+                insurer.Country = request.Country;
+
+                await _userService.UpdateUserAsync(insurer);
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Update,
+                    EntityType = EntityType.User,
+                    EntityId = insurer.Id.ToString(),
+                    ActionDescription = $"Insurer updated: {insurer.FirstName} {insurer.LastName} (ID: {insurer.Id})",
+                    OldValues = oldValues,
+                    NewValues = $"FirstName: {insurer.FirstName}, LastName: {insurer.LastName}, Email: {insurer.Email}, CompanyName: {insurer.CompanyName}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Insurer updated successfully",
+                    data = insurer
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating insurer {InsurerId}", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to update insurer",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Gets the current user ID from request headers or claims
+        /// </summary>
+        private int? GetCurrentUserId()
+        {
+            // Try to get user ID from header (X-User-Id)
+            var userIdStr = Request.Headers["X-User-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(userIdStr) && int.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+
+            // Try to get user ID from claims (if using authentication)
+            var userIdClaim = User?.FindFirst("userId")?.Value ?? User?.FindFirst("sub")?.Value;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userIdFromClaim))
+            {
+                return userIdFromClaim;
+            }
+
+            // If no user ID found, return null (system action)
+            return null;
         }
     }
 }

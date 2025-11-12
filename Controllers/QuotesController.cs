@@ -177,8 +177,62 @@ namespace InsuranceClaimsAPI.Controllers
         [HttpGet("provider/{userId}")]
         public async Task<IActionResult> GetByProviderFirebaseId(string userId)
         {
-            var quotes = await _quoteService.GetByProviderFirebaseIdAsync(userId);
-            return Ok(quotes);
+            try
+            {
+                // Check if provider exists first
+                var provider = await _quoteService.GetProviderByFirebaseIdAsync(userId);
+                if (provider == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        error = "Provider not found",
+                        message = $"No provider found with Firebase UID: {userId}"
+                    });
+                }
+
+                var quotes = await _quoteService.GetByProviderFirebaseIdAsync(userId);
+
+                var response = quotes.Select(q => new
+                {
+                    quoteId = q.QuoteId,
+                    claimId = q.PolicyId,
+                    providerId = q.ProviderId,
+                    amount = q.Amount,
+                    status = q.Status.ToString(),
+                    dateSubmitted = q.DateSubmitted,
+                    documents = (q.QuoteDocuments ?? new List<QuoteDocument>()).Select(d => new
+                    {
+                        id = d.Id,
+                        fileName = d.FileName,
+                        mimeType = d.MimeType,
+                        fileSizeBytes = d.FileSizeBytes,
+                        type = d.Type.ToString(),
+                        url = d.FilePath,
+                        title = d.Title,
+                        description = d.Description,
+                        tags = d.Tags,
+                        uploadedAt = d.CreatedAt
+                    }).ToList()
+                }).ToList();
+
+                return Ok(new
+                {
+                    success = true,
+                    count = response.Count,
+                    data = response
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting quotes for provider with Firebase UID: {FirebaseUid}", userId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to retrieve quotes",
+                    details = ex.Message
+                });
+            }
         }
 
         [HttpPost("/api/add/quotes")]
@@ -197,11 +251,11 @@ namespace InsuranceClaimsAPI.Controllers
         {
             try
             {
-                int? headerUserId = null;
+                // Get user ID from header - required
                 var headerValue = Request.Headers["X-User-Id"].FirstOrDefault();
-                if (int.TryParse(headerValue, out var parsedUserId) && parsedUserId > 0)
+                if (string.IsNullOrEmpty(headerValue) || !int.TryParse(headerValue, out var headerUserId) || headerUserId <= 0)
                 {
-                    headerUserId = parsedUserId;
+                    return BadRequest(new { success = false, error = "Valid X-User-Id header is required" });
                 }
 
                 // Validate claim exists
@@ -211,17 +265,8 @@ namespace InsuranceClaimsAPI.Controllers
                     return NotFound(new { success = false, error = "Claim not found" });
                 }
 
-                // Use the claim's provider as the quote provider to ensure FK integrity
-                var providerId = claim.ProviderId;
-                if (providerId <= 0)
-                {
-                    return BadRequest(new { success = false, error = "Claim has no associated provider" });
-                }
-
-                if (!headerUserId.HasValue)
-                {
-                    headerUserId = providerId;
-                }
+                // Use the user ID from header as the provider ID
+                var providerId = headerUserId;
 
                 // Create quote
                 var quote = new Quote

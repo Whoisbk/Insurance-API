@@ -21,6 +21,19 @@ namespace InsuranceClaimsAPI.Models.DTOs.Admin
         public string? Address { get; set; }
 
         public DateTime? EndDate { get; set; }
+
+        public int? InsurerId { get; set; }
+
+        // User fields
+        [MaxLength(100)]
+        public string? FirstName { get; set; }
+
+        [MaxLength(100)]
+        public string? LastName { get; set; }
+
+        [EmailAddress]
+        [MaxLength(255)]
+        public string? UserEmail { get; set; }
     }
 }
 

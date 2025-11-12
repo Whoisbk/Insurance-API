@@ -41,6 +41,9 @@ namespace InsuranceClaimsAPI.Services
             try
             {
                 var user = await _context.Users
+                    .Include(u => u.InsurerProfile)
+                    .Include(u => u.ServiceProviderProfile)
+                    .Where(u => u.DeletedAt == null)
                     .FirstOrDefaultAsync(u => u.Email == loginRequest.Email && u.Status == UserStatus.Active);
 
                 if (user == null || !BCrypt.Net.BCrypt.Verify(loginRequest.Password, user.PasswordHash))
@@ -172,7 +175,9 @@ namespace InsuranceClaimsAPI.Services
 
         public async Task<bool> EmailExistsAsync(string email)
         {
-            return await _context.Users.AnyAsync(u => u.Email == email);
+            return await _context.Users
+                .Where(u => u.DeletedAt == null)
+                .AnyAsync(u => u.Email == email);
         }
 
         public async Task<UserDto?> GetUserByFirebaseUidAsync(string firebaseUid)
@@ -180,6 +185,9 @@ namespace InsuranceClaimsAPI.Services
             try
             {
                 var user = await _context.Users
+                    .Include(u => u.InsurerProfile)
+                    .Include(u => u.ServiceProviderProfile)
+                    .Where(u => u.DeletedAt == null)
                     .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid && u.Status == UserStatus.Active);
 
                 if (user == null)
@@ -201,7 +209,9 @@ namespace InsuranceClaimsAPI.Services
             try
             {
                 var users = await _context.Users
-                    .Where(u => u.Status == UserStatus.Active)
+                    .Include(u => u.InsurerProfile)
+                    .Include(u => u.ServiceProviderProfile)
+                    .Where(u => u.Status == UserStatus.Active && u.DeletedAt == null)
                     .ToListAsync();
 
                 return _mapper.Map<List<UserDto>>(users);
@@ -218,7 +228,9 @@ namespace InsuranceClaimsAPI.Services
             try
             {
                 var users = await _context.Users
-                    .Where(u => u.Role == role && u.Status == UserStatus.Active)
+                    .Include(u => u.InsurerProfile)
+                    .Include(u => u.ServiceProviderProfile)
+                    .Where(u => u.Role == role && u.Status == UserStatus.Active && u.DeletedAt == null)
                     .ToListAsync();
 
                 return _mapper.Map<List<UserDto>>(users);

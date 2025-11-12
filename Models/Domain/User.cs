@@ -70,6 +70,7 @@ namespace InsuranceClaimsAPI.Models.Domain
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public DateTime? LastLoginAt { get; set; }
+        public DateTime? DeletedAt { get; set; }
 
         // Navigation properties
         [InverseProperty("Provider")]
@@ -86,5 +87,7 @@ namespace InsuranceClaimsAPI.Models.Domain
         public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
         [InverseProperty("Insurer")]
         public virtual ICollection<Claim> ManagedClaims { get; set; } = new List<Claim>();
+        public virtual Insurer? InsurerProfile { get; set; }
+        public virtual ServiceProvider? ServiceProviderProfile { get; set; }
     }
 }
