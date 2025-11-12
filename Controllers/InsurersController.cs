@@ -65,6 +65,7 @@ namespace InsuranceClaimsAPI.Controllers
                     amount = q.Amount,
                     status = q.Status.ToString(),
                     dateSubmitted = q.DateSubmitted,
+                    clientName = q.Policy?.ClientFullName,
                     provider = q.Policy?.Provider != null ? new
                     {
                         id = q.Policy.Provider.Id,
