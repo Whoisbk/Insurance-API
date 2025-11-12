@@ -37,5 +37,11 @@ namespace InsuranceClaimsAPI.Models.DTOs.Admin
 
         [MaxLength(100)]
         public string? ContactPerson { get; set; }
+
+        /// <summary>
+        /// Optional InsurerId to assign or reassign provider to an insurer
+        /// </summary>
+        [Range(1, int.MaxValue, ErrorMessage = "InsurerId must be a positive integer.")]
+        public int? InsurerId { get; set; }
     }
 }
