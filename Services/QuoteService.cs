@@ -27,6 +27,7 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Quote>> GetAllAsync();
         Task<Quote?> GetByIdAsync(int quoteId);
         Task<IReadOnlyList<Quote>> GetByProviderFirebaseIdAsync(string firebaseUid);
+        Task<User?> GetProviderByFirebaseIdAsync(string firebaseUid);
         Task<IReadOnlyList<Quote>> GetForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int quoteId);
         Task<IReadOnlyList<QuoteDocument>> AddDocumentsAsync(
@@ -189,10 +190,16 @@ namespace InsuranceClaimsAPI.Services
                 .FirstOrDefaultAsync(q => q.QuoteId == quoteId);
         }
 
+        public async Task<User?> GetProviderByFirebaseIdAsync(string firebaseUid)
+        {
+            return await _context.Users
+                .Where(u => u.DeletedAt == null)
+                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid && u.Role == UserRole.Provider);
+        }
+
         public async Task<IReadOnlyList<Quote>> GetByProviderFirebaseIdAsync(string firebaseUid)
         {
-            var provider = await _context.Users
-                .FirstOrDefaultAsync(u => u.FirebaseUid == firebaseUid && u.Role == UserRole.Provider);
+            var provider = await GetProviderByFirebaseIdAsync(firebaseUid);
 
             if (provider == null)
             {

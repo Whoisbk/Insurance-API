@@ -14,12 +14,14 @@ namespace InsuranceClaimsAPI.Controllers
         private readonly IAuthService _authService;
         private readonly IUserService _userService;
         private readonly ILogger<UsersController> _logger;
+        private readonly IAuditService _auditService;
 
-        public UsersController(IAuthService authService, IUserService userService, ILogger<UsersController> logger)
+        public UsersController(IAuthService authService, IUserService userService, ILogger<UsersController> logger, IAuditService auditService)
         {
             _authService = authService;
             _userService = userService;
             _logger = logger;
+            _auditService = auditService;
         }
 
         [HttpGet("firebase/{firebaseUid}")]
@@ -86,6 +88,9 @@ namespace InsuranceClaimsAPI.Controllers
                     return NotFound(new { success = false, error = "User not found" });
                 }
 
+                // Store old values for audit log
+                var oldValues = $"FirstName: {user.FirstName}, LastName: {user.LastName}, Email: {user.Email}, CompanyName: {user.CompanyName}";
+
                 var updateResult = await TryApplyUserProfileUpdates(user, request);
                 if (updateResult.ErrorResult != null)
                 {
@@ -102,6 +107,21 @@ namespace InsuranceClaimsAPI.Controllers
                 }
 
                 await _userService.UpdateUserAsync(user);
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Update,
+                    EntityType = EntityType.User,
+                    EntityId = user.Id.ToString(),
+                    ActionDescription = $"User updated: {user.FirstName} {user.LastName} (ID: {user.Id}, Role: {user.Role})",
+                    OldValues = oldValues,
+                    NewValues = $"FirstName: {user.FirstName}, LastName: {user.LastName}, Email: {user.Email}, CompanyName: {user.CompanyName}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
 
                 // Update Firebase email if changed (with timeout, best effort)
                 if (updateResult.EmailChanged && !string.IsNullOrEmpty(user.FirebaseUid))
@@ -277,6 +297,108 @@ namespace InsuranceClaimsAPI.Controllers
             }
 
             return hasUpdates;
+        }
+
+        /// <summary>
+        /// Soft deletes a user (sets DeletedAt) and disables user in Firebase
+        /// </summary>
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUser(int id)
+        {
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new { success = false, error = "User not found" });
+                }
+
+                // Store user info for audit log before deletion
+                var deletedUserInfo = $"FirstName: {user.FirstName}, LastName: {user.LastName}, Email: {user.Email}, CompanyName: {user.CompanyName}, Role: {user.Role}";
+
+                // Soft delete from database
+                var deleted = await _userService.DeleteUserAsync(id);
+                if (!deleted)
+                {
+                    return NotFound(new { success = false, error = "User not found or could not be deleted" });
+                }
+
+                // Disable user in Firebase if UID exists
+                if (!string.IsNullOrEmpty(user.FirebaseUid))
+                {
+                    try
+                    {
+                        var updateArgs = new UserRecordArgs
+                        {
+                            Uid = user.FirebaseUid,
+                            Disabled = true
+                        };
+                        await FirebaseAuth.DefaultInstance.UpdateUserAsync(updateArgs);
+                        _logger.LogInformation($"Firebase user disabled: {user.FirebaseUid}");
+                    }
+                    catch (FirebaseAuthException ex)
+                    {
+                        _logger.LogWarning($"Firebase disable failed (user may already be deleted): {ex.Message}");
+                    }
+                    catch (Exception firebaseEx)
+                    {
+                        _logger.LogWarning(firebaseEx, "Unexpected error disabling Firebase user {FirebaseUid}", user.FirebaseUid);
+                    }
+                }
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Delete,
+                    EntityType = EntityType.User,
+                    EntityId = id.ToString(),
+                    ActionDescription = $"User deleted: {user.FirstName} {user.LastName} (ID: {id}, Role: {user.Role})",
+                    OldValues = deletedUserInfo,
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "User deleted successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting user {UserId}", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to delete user",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Gets the current user ID from request headers or claims
+        /// </summary>
+        private int? GetCurrentUserId()
+        {
+            // Try to get user ID from header (X-User-Id)
+            var userIdStr = Request.Headers["X-User-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(userIdStr) && int.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+
+            // Try to get user ID from claims (if using authentication)
+            var userIdClaim = User?.FindFirst("userId")?.Value ?? User?.FindFirst("sub")?.Value;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userIdFromClaim))
+            {
+                return userIdFromClaim;
+            }
+
+            // If no user ID found, return null (system action)
+            return null;
         }
 
         private sealed record RequiredStringField(string? Value, Action<string> Setter, string FieldName);

@@ -12,6 +12,7 @@ namespace InsuranceClaimsAPI.Data
         // DbSets
         public DbSet<User> Users { get; set; }
         public DbSet<Models.Domain.ServiceProvider> ServiceProviders { get; set; }
+        public DbSet<Insurer> Insurers { get; set; }
         public DbSet<Policy> Policies { get; set; }
         public DbSet<Claim> Claims { get; set; }
         public DbSet<Quote> Quotes { get; set; }
@@ -36,6 +37,19 @@ namespace InsuranceClaimsAPI.Data
                 entity.Property(e => e.UpdatedAt).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
             });
 
+            // Configure Insurer entity
+            modelBuilder.Entity<Insurer>(entity =>
+            {
+                entity.HasIndex(e => e.UserId).IsUnique();
+                entity.Property(e => e.CreatedAt).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP");
+                entity.Property(e => e.UpdatedAt).HasColumnType("datetime").HasDefaultValueSql("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+
+                entity.HasOne(i => i.User)
+                    .WithOne(u => u.InsurerProfile)
+                    .HasForeignKey<Insurer>(i => i.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
             // Configure ServiceProvider entity
             modelBuilder.Entity<Models.Domain.ServiceProvider>(entity =>
             {
@@ -45,9 +59,14 @@ namespace InsuranceClaimsAPI.Data
                 entity.Property(e => e.EndDate).HasColumnType("datetime");
 
                 entity.HasOne(d => d.User)
-                    .WithOne()
+                    .WithOne(u => u.ServiceProviderProfile)
                     .HasForeignKey<Models.Domain.ServiceProvider>(d => d.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(d => d.Insurer)
+                    .WithMany(i => i.ServiceProviders)
+                    .HasForeignKey(d => d.InsurerId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             // Configure Policy entity

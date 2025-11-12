@@ -44,7 +44,9 @@ namespace InsuranceClaimsAPI.Services
                 throw new InvalidOperationException("Claim not found");
             }
 
-            var senderExists = await _context.Users.AnyAsync(u => u.Id == message.SenderId);
+            var senderExists = await _context.Users
+                .Where(u => u.DeletedAt == null)
+                .AnyAsync(u => u.Id == message.SenderId);
             if (!senderExists)
             {
                 throw new InvalidOperationException("Sender not found");
@@ -52,7 +54,9 @@ namespace InsuranceClaimsAPI.Services
 
             if (message.ReceiverId.HasValue)
             {
-                var receiverExists = await _context.Users.AnyAsync(u => u.Id == message.ReceiverId.Value);
+                var receiverExists = await _context.Users
+                    .Where(u => u.DeletedAt == null)
+                    .AnyAsync(u => u.Id == message.ReceiverId.Value);
                 if (!receiverExists)
                 {
                     throw new InvalidOperationException("Receiver not found");
@@ -148,7 +152,9 @@ namespace InsuranceClaimsAPI.Services
                 // Best-effort email notification
                 try
                 {
-                    var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Id == message.ReceiverId.Value);
+                    var receiver = await _context.Users
+                        .Where(u => u.DeletedAt == null)
+                        .FirstOrDefaultAsync(u => u.Id == message.ReceiverId.Value);
                     if (receiver != null && !string.IsNullOrWhiteSpace(receiver.Email))
                     {
                         var subject = string.IsNullOrWhiteSpace(message.Subject) ? "You have a new message" : message.Subject!;

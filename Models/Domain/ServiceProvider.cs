@@ -12,6 +12,8 @@ namespace InsuranceClaimsAPI.Models.Domain
         [Required]
         public int UserId { get; set; }
 
+        public int? InsurerId { get; set; }
+
         [Required]
         [MaxLength(255)]
         public string Name { get; set; } = string.Empty;
@@ -38,5 +40,8 @@ namespace InsuranceClaimsAPI.Models.Domain
         // Navigation properties
         [ForeignKey("UserId")]
         public virtual User User { get; set; } = null!;
+
+        [ForeignKey("InsurerId")]
+        public virtual Insurer? Insurer { get; set; }
     }
 }

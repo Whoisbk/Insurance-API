@@ -14,12 +14,16 @@ namespace InsuranceClaimsAPI.Controllers
     {
         private readonly IAuthService _authService;
         private readonly IServiceProviderService _serviceProviderService;
+        private readonly IUserService _userService;
+        private readonly IAuditService _auditService;
         private readonly ILogger<ProvidersController> _logger;
 
-        public ProvidersController(IAuthService authService, IServiceProviderService serviceProviderService, ILogger<ProvidersController> logger)
+        public ProvidersController(IAuthService authService, IServiceProviderService serviceProviderService, IUserService userService, IAuditService auditService, ILogger<ProvidersController> logger)
         {
             _authService = authService;
             _serviceProviderService = serviceProviderService;
+            _userService = userService;
+            _auditService = auditService;
             _logger = logger;
         }
 
@@ -61,6 +65,13 @@ namespace InsuranceClaimsAPI.Controllers
                         email = sp.Email,
                         address = sp.Address,
                         endDate = sp.EndDate,
+                        insurerId = sp.InsurerId,
+                        insurer = sp.Insurer != null ? new
+                        {
+                            insurerId = sp.Insurer.InsurerId,
+                            name = sp.Insurer.Name,
+                            email = sp.Insurer.Email
+                        } : null,
                         user = new
                         {
                             id = sp.User.Id,
@@ -105,6 +116,13 @@ namespace InsuranceClaimsAPI.Controllers
                         email = serviceProvider.Email,
                         address = serviceProvider.Address,
                         endDate = serviceProvider.EndDate,
+                        insurerId = serviceProvider.InsurerId,
+                        insurer = serviceProvider.Insurer != null ? new
+                        {
+                            insurerId = serviceProvider.Insurer.InsurerId,
+                            name = serviceProvider.Insurer.Name,
+                            email = serviceProvider.Insurer.Email
+                        } : null,
                         user = new
                         {
                             id = serviceProvider.User.Id,
@@ -167,10 +185,73 @@ namespace InsuranceClaimsAPI.Controllers
         }
 
         /// <summary>
+        /// Updates a provider User by ID (for admin editing provider users)
+        /// </summary>
+        [HttpPut("edit/{id}")]
+        public async Task<IActionResult> UpdateProviderUser(int id, [FromBody] UpdateProviderRequest request)
+        {
+            try
+            {
+                var provider = await _userService.GetUserByIdAsync(id);
+                if (provider == null || provider.Role != UserRole.Provider)
+                {
+                    return NotFound(new { success = false, error = "Provider not found" });
+                }
+
+                // Store old values for audit log
+                var oldValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}";
+
+                // Update database
+                provider.FirstName = request.FirstName;
+                provider.LastName = request.LastName;
+                provider.Email = request.Email;
+                provider.CompanyName = request.CompanyName;
+                provider.PhoneNumber = request.PhoneNumber;
+                provider.Address = request.Address;
+                provider.City = request.City;
+                provider.PostalCode = request.PostalCode;
+                provider.Country = request.Country;
+
+                await _userService.UpdateUserAsync(provider);
+
+                // Log audit entry
+                var currentUserId = GetCurrentUserId();
+                await _auditService.LogAsync(new AuditLog
+                {
+                    UserId = currentUserId,
+                    Action = AuditAction.Update,
+                    EntityType = EntityType.User,
+                    EntityId = provider.Id.ToString(),
+                    ActionDescription = $"Provider updated: {provider.FirstName} {provider.LastName} (ID: {provider.Id})",
+                    OldValues = oldValues,
+                    NewValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers["User-Agent"].ToString()
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Provider updated successfully",
+                    data = provider
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating provider {ProviderId}", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Failed to update provider",
+                    details = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
         /// Updates a service provider by ID
         /// </summary>
         [HttpPut("{id}")]
-        [HttpPut("edit/{id}")]
         public async Task<IActionResult> UpdateProvider(int id, [FromBody] UpdateServiceProviderRequest request)
         {
             try
@@ -181,7 +262,42 @@ namespace InsuranceClaimsAPI.Controllers
                     return NotFound(new { success = false, error = "Service provider not found" });
                 }
 
-                // Update only provided fields
+                // Update User fields if provided
+                if (serviceProvider.User != null)
+                {
+                    bool userUpdated = false;
+
+                    if (!string.IsNullOrWhiteSpace(request.FirstName))
+                    {
+                        serviceProvider.User.FirstName = request.FirstName;
+                        userUpdated = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.LastName))
+                    {
+                        serviceProvider.User.LastName = request.LastName;
+                        userUpdated = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.UserEmail))
+                    {
+                        // Check if email already exists for another user
+                        if (await _userService.EmailExistsForAnotherUserAsync(serviceProvider.User.Id, request.UserEmail))
+                        {
+                            return Conflict(new { success = false, error = "Email already exists for another user" });
+                        }
+                        serviceProvider.User.Email = request.UserEmail;
+                        userUpdated = true;
+                    }
+
+                    // Update the user if any user fields were changed
+                    if (userUpdated)
+                    {
+                        await _userService.UpdateUserAsync(serviceProvider.User);
+                    }
+                }
+
+                // Update ServiceProvider fields
                 if (!string.IsNullOrWhiteSpace(request.Name))
                 {
                     serviceProvider.Name = request.Name;
@@ -207,6 +323,11 @@ namespace InsuranceClaimsAPI.Controllers
                     serviceProvider.Address = request.Address;
                 }
                 
+                if (request.InsurerId.HasValue)
+                {
+                    serviceProvider.InsurerId = request.InsurerId.Value;
+                }
+
                 if (request.EndDate.HasValue)
                 {
                     serviceProvider.EndDate = request.EndDate.Value;
@@ -214,20 +335,37 @@ namespace InsuranceClaimsAPI.Controllers
 
                 await _serviceProviderService.UpdateServiceProviderAsync(serviceProvider);
 
+                // Reload the entity to get the latest data including navigation properties
+                var updatedServiceProvider = await _serviceProviderService.GetServiceProviderByIdAsync(id);
+
                 return Ok(new
                 {
                     success = true,
                     message = "Service provider updated successfully",
                     data = new
                     {
-                        providerId = serviceProvider.ProviderId,
-                        userId = serviceProvider.UserId,
-                        name = serviceProvider.Name,
-                        specialization = serviceProvider.Specialization,
-                        phoneNumber = serviceProvider.PhoneNumber,
-                        email = serviceProvider.Email,
-                        address = serviceProvider.Address,
-                        endDate = serviceProvider.EndDate
+                        providerId = updatedServiceProvider.ProviderId,
+                        userId = updatedServiceProvider.UserId,
+                        name = updatedServiceProvider.Name,
+                        specialization = updatedServiceProvider.Specialization,
+                        phoneNumber = updatedServiceProvider.PhoneNumber,
+                        email = updatedServiceProvider.Email,
+                        address = updatedServiceProvider.Address,
+                        endDate = updatedServiceProvider.EndDate,
+                        insurerId = updatedServiceProvider.InsurerId,
+                        insurer = updatedServiceProvider.Insurer != null ? new
+                        {
+                            insurerId = updatedServiceProvider.Insurer.InsurerId,
+                            name = updatedServiceProvider.Insurer.Name,
+                            email = updatedServiceProvider.Insurer.Email
+                        } : null,
+                        user = new
+                        {
+                            id = updatedServiceProvider.User.Id,
+                            firstName = updatedServiceProvider.User.FirstName,
+                            lastName = updatedServiceProvider.User.LastName,
+                            email = updatedServiceProvider.User.Email
+                        }
                     }
                 });
             }
@@ -241,6 +379,29 @@ namespace InsuranceClaimsAPI.Controllers
                     details = ex.Message
                 });
             }
+        }
+
+        /// <summary>
+        /// Gets the current user ID from request headers or claims
+        /// </summary>
+        private int? GetCurrentUserId()
+        {
+            // Try to get user ID from header (X-User-Id)
+            var userIdStr = Request.Headers["X-User-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(userIdStr) && int.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+
+            // Try to get user ID from claims (if using authentication)
+            var userIdClaim = User?.FindFirst("userId")?.Value ?? User?.FindFirst("sub")?.Value;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userIdFromClaim))
+            {
+                return userIdFromClaim;
+            }
+
+            // If no user ID found, return null (system action)
+            return null;
         }
     }
 
