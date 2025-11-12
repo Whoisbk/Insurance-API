@@ -838,15 +838,25 @@ namespace InsuranceClaimsAPI.Controllers
 
         /// <summary>
         /// Updates provider information
-        /// Supports both /api/AdminUser/providers/{id} and /api/providers/edit/{id} routes
+        /// Route: /api/AdminUser/providers/{id}
         /// </summary>
         [HttpPut("providers/{id}")]
-        [HttpPut("providers/edit/{id}")]
-        [HttpPut("/api/providers/edit/{id}")]
         public async Task<IActionResult> UpdateProvider(int id, [FromBody] UpdateProviderRequest request)
         {
             try
             {
+                // Validate request is not null
+                if (request == null)
+                {
+                    return BadRequest(new { success = false, error = "Request body is required" });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new { success = false, error = "Invalid request data", details = ModelState });
+                }
+
                 var provider = await _userService.GetUserByIdAsync(id);
                 if (provider == null || provider.Role != UserRole.Provider)
                 {
@@ -860,8 +870,24 @@ namespace InsuranceClaimsAPI.Controllers
                     return BadRequest(new { success = false, error = "An account with this email already exists" });
                 }
 
+                // Validate InsurerId if provided
+                if (request.InsurerId.HasValue && request.InsurerId.Value > 0)
+                {
+                    var insurerExists = await _context.Insurers
+                        .AnyAsync(i => i.InsurerId == request.InsurerId.Value);
+                    
+                    if (!insurerExists)
+                    {
+                        return BadRequest(new { success = false, error = "Invalid InsurerId. Insurer not found." });
+                    }
+                }
+
+                // Get ServiceProvider entity before update for audit log
+                var serviceProvider = await _serviceProviderService.GetServiceProviderByUserIdAsync(id);
+                var oldInsurerId = serviceProvider?.InsurerId;
+
                 // Store old values for audit log
-                var oldValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}";
+                var oldValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}, InsurerId: {oldInsurerId?.ToString() ?? "null"}";
 
                 // Update User entity
                 provider.FirstName = request.FirstName;
@@ -878,18 +904,26 @@ namespace InsuranceClaimsAPI.Controllers
                 await _userService.UpdateUserAsync(provider);
 
                 // Update ServiceProvider entity
-                var serviceProvider = await _serviceProviderService.GetServiceProviderByUserIdAsync(id);
                 if (serviceProvider != null)
                 {
                     serviceProvider.Name = $"{request.FirstName} {request.LastName}".Trim();
                     serviceProvider.Email = request.Email;
                     serviceProvider.PhoneNumber = request.PhoneNumber ?? "";
                     serviceProvider.Address = request.Address ?? "";
+                    
+                    // Update InsurerId if provided
+                    if (request.InsurerId.HasValue)
+                    {
+                        serviceProvider.InsurerId = request.InsurerId.Value;
+                    }
+                    
                     await _serviceProviderService.UpdateServiceProviderAsync(serviceProvider);
                 }
 
                 // Log audit entry
                 var currentUserId = GetCurrentUserId();
+                // Use the updated InsurerId (either from request or keep the old one)
+                var newInsurerId = request.InsurerId ?? oldInsurerId;
                 await _auditService.LogAsync(new AuditLog
                 {
                     UserId = currentUserId,
@@ -898,7 +932,7 @@ namespace InsuranceClaimsAPI.Controllers
                     EntityId = provider.Id.ToString(),
                     ActionDescription = $"Provider updated: {provider.FirstName} {provider.LastName} (ID: {provider.Id})",
                     OldValues = oldValues,
-                    NewValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}",
+                    NewValues = $"FirstName: {provider.FirstName}, LastName: {provider.LastName}, Email: {provider.Email}, CompanyName: {provider.CompanyName}, InsurerId: {newInsurerId?.ToString() ?? "null"}",
                     IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
                     UserAgent = Request.Headers["User-Agent"].ToString()
                 });
@@ -933,6 +967,9 @@ namespace InsuranceClaimsAPI.Controllers
                     }
                 }
 
+                // Refresh serviceProvider to get updated InsurerId
+                serviceProvider = await _serviceProviderService.GetServiceProviderByUserIdAsync(id);
+
                 return Ok(new
                 {
                     success = true,
@@ -952,7 +989,8 @@ namespace InsuranceClaimsAPI.Controllers
                         role = (int)provider.Role,
                         status = (int)provider.Status,
                         firebaseUid = provider.FirebaseUid,
-                        updatedAt = provider.UpdatedAt
+                        updatedAt = provider.UpdatedAt,
+                        insurerId = serviceProvider?.InsurerId
                     }
                 });
             }
