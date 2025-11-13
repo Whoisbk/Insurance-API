@@ -23,7 +23,7 @@ namespace InsuranceClaimsAPI.Hubs
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"User_{userId}");
                 
                 // Store connection in cache
-                _cache.Set(R"connection_{userId}", Context.ConnectionId, TimeSpan.FromHours(2));
+                _cache.Set($"connection_{userId}", Context.ConnectionId, TimeSpan.FromHours(2));
                 
                 _logger.LogInformation("User {UserId} connected with connection {ConnectionId}", userId, Context.ConnectionId);
             }
