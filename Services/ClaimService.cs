@@ -15,6 +15,7 @@ namespace InsuranceClaimsAPI.Services
         Task<IReadOnlyList<Claim>> GetForInsurerAsync(int insurerId);
         Task<bool> DeleteAsync(int claimId);
         Task UpdateStatusAsync(int claimId, ClaimStatus status);
+        Task<Claim?> UpdateAsync(int id, Claim claim);
     }
 
     public class ClaimService : IClaimService
@@ -231,6 +232,67 @@ namespace InsuranceClaimsAPI.Services
                 EntityId = claimId.ToString(),
                 ActionDescription = $"Claim status changed from {old} to {status}"
             });
+        }
+
+        public async Task<Claim?> UpdateAsync(int id, Claim updatedClaim)
+        {
+            var claim = await _context.Claims.FindAsync(id);
+            if (claim == null) return null;
+
+            // Update only the fields that should be updatable
+            // Preserve: Id, ClaimNumber, CreatedAt, ProviderId, InsurerId (unless explicitly changed)
+            claim.Title = updatedClaim.Title;
+            claim.Description = updatedClaim.Description;
+            claim.Status = updatedClaim.Status;
+            claim.Priority = updatedClaim.Priority;
+            claim.EstimatedAmount = updatedClaim.EstimatedAmount;
+            claim.ApprovedAmount = updatedClaim.ApprovedAmount;
+            claim.PolicyNumber = updatedClaim.PolicyNumber;
+            claim.PolicyHolderName = updatedClaim.PolicyHolderName;
+            claim.ClientFullName = updatedClaim.ClientFullName;
+            claim.ClientEmailAddress = updatedClaim.ClientEmailAddress;
+            claim.ClientPhoneNumber = updatedClaim.ClientPhoneNumber;
+            claim.ClientAddress = updatedClaim.ClientAddress;
+            claim.ClientCompany = updatedClaim.ClientCompany;
+            claim.IncidentLocation = updatedClaim.IncidentLocation;
+            claim.IncidentDate = updatedClaim.IncidentDate;
+            claim.DueDate = updatedClaim.DueDate;
+            claim.Notes = updatedClaim.Notes;
+            claim.Category = updatedClaim.Category;
+
+            // Update ProviderId and InsurerId if provided (validate they exist)
+            if (updatedClaim.ProviderId > 0 && updatedClaim.ProviderId != claim.ProviderId)
+            {
+                var provider = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Id == updatedClaim.ProviderId && u.Role == UserRole.Provider);
+                if (provider != null)
+                {
+                    claim.ProviderId = updatedClaim.ProviderId;
+                }
+            }
+
+            if (updatedClaim.InsurerId > 0 && updatedClaim.InsurerId != claim.InsurerId)
+            {
+                var insurer = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Id == updatedClaim.InsurerId && u.Role == UserRole.Insurer);
+                if (insurer != null)
+                {
+                    claim.InsurerId = updatedClaim.InsurerId;
+                }
+            }
+
+            claim.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync(new AuditLog
+            {
+                Action = AuditAction.Update,
+                EntityType = EntityType.Claim,
+                EntityId = id.ToString(),
+                ActionDescription = "Claim updated"
+            });
+
+            return claim;
         }
     }
 }

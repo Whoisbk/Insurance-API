@@ -223,6 +223,42 @@ namespace InsuranceClaimsAPI.Controllers
             }
         }
 
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] ClaimEntity claim)
+        {
+            try
+            {
+                if (claim == null)
+                {
+                    return BadRequest(new { error = "Request body is required" });
+                }
+
+                // Use the ID from the URL, ignore ID in body if present
+                claim.Id = id;
+
+                if (!ModelState.IsValid)
+                {
+                    return ValidationProblem(ModelState);
+                }
+
+                var updated = await _claimService.UpdateAsync(id, claim);
+                if (updated == null)
+                {
+                    return NotFound(new { error = "Claim not found" });
+                }
+
+                return Ok(updated);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "An error occurred while updating the claim.", details = ex.Message });
+            }
+        }
+
         [HttpPut("{id:int}/status")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] ClaimStatus status)
         {
