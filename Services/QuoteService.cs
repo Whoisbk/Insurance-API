@@ -98,7 +98,7 @@ namespace InsuranceClaimsAPI.Services
                     {
                         UserId = claim.InsurerId,
                         QuoteId = quote.QuoteId,
-                        Message = $"A new quote for ${quote.Amount:N2} has been submitted for claim {claim.ClaimNumber}",
+                        Message = $"A new quote for R{quote.Amount:N2} has been submitted for claim {claim.ClaimNumber}",
                         DateSent = DateTime.UtcNow,
                         Status = NotificationStatus.Unread
                     });
@@ -146,7 +146,7 @@ namespace InsuranceClaimsAPI.Services
                     _ => "updated"
                 };
 
-                var notificationMessage = $"Your quote for ${quote.Amount:N2} has been {statusMessage}";
+                var notificationMessage = $"Your quote for R{quote.Amount:N2} has been {statusMessage}";
                 if (!string.IsNullOrEmpty(reasonOrNotes))
                 {
                     notificationMessage += $": {reasonOrNotes}";
